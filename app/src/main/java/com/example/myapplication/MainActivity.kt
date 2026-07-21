@@ -7,6 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -56,6 +58,7 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
     val modelState by viewModel.modelState.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val logs by viewModel.logs.collectAsState()
+    val selectedModel by viewModel.selectedModel.collectAsState()
     
     var inputText by remember { mutableStateOf("") }
 
@@ -64,9 +67,9 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Gemma 3 1B-IT On-Device")
+                        Text("${selectedModel.displayName} On-Device")
                         Text(
-                            "Powered by MediaPipe v0.10.35",
+                            if (selectedModel.backend == Backend.LITERT_LM) "Powered by LiteRT-LM v$LITERTLM_VERSION" else "Powered by MediaPipe v$MEDIAPIPE_VERSION",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
@@ -99,6 +102,9 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                 when (val state = modelState) {
                     is ModelState.Idle -> {
                         ModelSetupScreen(
+                            models = viewModel.availableModels,
+                            selectedModel = selectedModel,
+                            onSelectModel = { viewModel.selectModel(it) },
                             onStart = { viewModel.downloadAndInit() },
                             onClearStorage = { viewModel.clearStorage() }
                         )
@@ -128,7 +134,8 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                                     viewModel.sendMessage(inputText)
                                     inputText = ""
                                 },
-                                isGenerating = isGenerating
+                                isGenerating = isGenerating,
+                                modelDisplayName = selectedModel.displayName
                             )
                         }
                     }
@@ -156,10 +163,11 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                             Button(onClick = { viewModel.downloadAndInit(forceRedownload = true) }) {
                                 Text("Retry Download")
                             }
-                            TextButton(
+                            OutlinedButton(
                                 onClick = { viewModel.clearStorage() },
                                 modifier = Modifier.padding(top = 8.dp),
-                                colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                                border = BorderStroke(1.dp, Color.Red)
                             ) {
                                 Text("Clear Storage & Reset")
                             }
@@ -233,33 +241,74 @@ fun ProgressScreen(label: String, progress: Float?) {
 }
 
 @Composable
-fun ModelSetupScreen(onStart: () -> Unit, onClearStorage: () -> Unit) {
+fun ModelSetupScreen(
+    models: List<ModelOption>,
+    selectedModel: ModelOption,
+    onSelectModel: (ModelOption) -> Unit,
+    onStart: () -> Unit,
+    onClearStorage: () -> Unit
+) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Gemma 3 1B-IT Configuration", style = MaterialTheme.typography.headlineSmall)
+        Text("Choose a Model", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            "Gemma 3 1B-IT is a lightweight edge model (~550MB, int4 quantized).",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.padding(horizontal = 24.dp)
-        )
-        Spacer(modifier = Modifier.height(24.dp))
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            models.forEach { option ->
+                ModelOptionRow(
+                    option = option,
+                    isSelected = option.id == selectedModel.id,
+                    onClick = { onSelectModel(option) }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = onStart,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) {
             Text("Start")
         }
         Spacer(modifier = Modifier.height(24.dp))
-        TextButton(
+        OutlinedButton(
             onClick = onClearStorage,
-            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+            border = BorderStroke(1.dp, Color.Red)
         ) {
             Text("Clear Internal Storage")
+        }
+    }
+}
+
+@Composable
+fun ModelOptionRow(option: ModelOption, isSelected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onClick),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = isSelected, onClick = onClick)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    "${option.displayName} (~${option.approxSizeMb} MB)",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    option.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
         }
     }
 }
@@ -271,14 +320,22 @@ fun ChatScreen(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     isGenerating: Boolean,
+    modelDisplayName: String = "the model",
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
-    // Keep the view scrolled to the latest message as new messages arrive or stream in.
+    // Keep the view scrolled to the bottom as new messages arrive or stream in. A plain
+    // (non-animated) scrollToItem with a large scrollOffset is used rather than
+    // animateScrollToItem: animateScrollToItem aligns the target item to the *top* of the
+    // viewport, which for a long, still-growing streamed message means the newest text (at the
+    // bottom of that bubble) stays scrolled out of view. scrollOffset = Int.MAX_VALUE is clamped
+    // internally to the actual content size, reliably landing at the true bottom of the item.
+    // Using the non-animated variant also avoids piling up overlapping animations across the many
+    // rapid updates that happen while a response is streaming token by token.
     LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            listState.scrollToItem(messages.size - 1, scrollOffset = Int.MAX_VALUE)
         }
     }
 
@@ -306,7 +363,7 @@ fun ChatScreen(
                 value = inputText,
                 onValueChange = onInputChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask Gemma 3 1B-IT...") },
+                placeholder = { Text("Ask $modelDisplayName...") },
                 enabled = !isGenerating
             )
             IconButton(

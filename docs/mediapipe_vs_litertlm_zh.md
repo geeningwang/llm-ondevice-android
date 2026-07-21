@@ -2,6 +2,13 @@
 
 _最后更新：2026-07-21_
 
+> 状态更新：本演示应用现已同时支持两个模型，并且均已在真机上完成端到端
+> 验证：Gemma 3 1B-IT 通过 MediaPipe 的 LlmInference API 运行，
+> Gemma 4 E2B-IT 通过 LiteRT-LM 运行（已针对真实的 .litertlm
+> 文件验证，魔数 LITERTLM，格式版本 1.5.0，约 2.41GB）。这两个依赖可以
+> 在同一个 APK 中共存，没有任何冲突。完整架构说明以及开发过程中发现并修复
+> 的问题清单，请参见 app_overview_zh.md。
+
 本文总结了我们在为 Android 构建端侧 Gemma 聊天演示应用过程中,对 Google
 两套端侧大模型（LLM）推理方案的第一手对比经验：传统的 **MediaPipe LLM
 Inference API**（`com.google.mediapipe:tasks-genai`，核心类
@@ -21,6 +28,25 @@ Inference API**（`com.google.mediapipe:tasks-genai`，核心类
 - 如果你必须继续使用传统的 MediaPipe API，较早的模型（Gemma 2B/3 1B 等）
   仍有真实可用的 `.task` 格式包，例如可在 Hugging Face 的
   `litert-community` 组织下找到。
+
+## 本项目使用的版本信息
+
+本应用将两套技术栈同时打包在一起（已验证可在同一个 APK 中共存，没有依赖
+冲突或原生库冲突）。截至本文撰写时的具体版本如下：
+
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| `com.google.mediapipe:tasks-genai` | 0.10.35 | 撰写本文时的最新发布版本（2026 年 4 月）；即便该 API 已被弃用/进入维护模式，这仍是当前可获取的最新版本 |
+| `com.google.ai.edge.litertlm:litertlm-android` | 0.14.0 | 最新发布版本，对应 LiteRT-LM GitHub 上的 `v0.14.0` 版本 |
+| `.litertlm` 文件格式版本 | 1.5.0（主版本.次版本.修订版本） | 从我们验证过的 `gemma-4-E2B-it.litertlm` 文件头（魔数 `LITERTLM` + 版本字段）中读取得到；运行时会校验主版本号，主版本不匹配的文件会被拒绝加载 |
+| Android Gradle 插件（AGP） | 9.3.0 | |
+| Kotlin | 2.2.10 | |
+| Jetpack Compose BOM | 2026.02.01 | |
+| OkHttp（用于模型下载） | 4.12.0 | |
+
+将两套技术栈打包在一起，会让原生库体积大致翻倍：我们的 debug APK 从约
+129MB（仅 MediaPipe）增长到约 176MB（MediaPipe + LiteRT-LM）。如果你只
+需要其中一套技术栈，移除未使用的依赖即可控制 APK 体积。
 
 ## MediaPipe 和 LiteRT-LM 是什么关系？
 
@@ -152,8 +178,10 @@ LiteRT-LM。
   运行良好的 Gemma 3 1B-IT）：继续使用 MediaPipe `tasks-genai` 是一个
   合理、改动成本更低的选择，但要清楚它不会再获得新模型或新功能支持。
 - **混合方案**（在同一应用中提供多种模型选择，分别基于两套技术栈）也是
-  可行的，但意味着要同时维护两套依赖/运行时和两套不同的推理调用逻辑——
-  只有在确实需要同时支持"已集成的旧模型"和"更新的模型"时才值得这样做。
+  可行的，本项目的演示应用目前就是这样做的：同时携带两套依赖/运行时，
+  并通过统一的适配器接口封装两套不同的推理调用逻辑，两个模型均已验证可
+  正常工作。只有在确实需要同时支持已集成的旧模型和更新的模型时，
+  这份额外的复杂度才是值得的；否则，选择单一技术栈会更简单。
 
 ## 参考资料
 

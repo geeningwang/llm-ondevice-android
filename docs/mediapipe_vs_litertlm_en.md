@@ -2,6 +2,14 @@
 
 _Last updated: 2026-07-21_
 
+> Status update: This demo app now ships both models side by side and both
+> have been verified working end-to-end on-device: Gemma 3 1B-IT via the
+> MediaPipe LlmInference API, and Gemma 4 E2B-IT via LiteRT-LM (verified
+> against a genuine .litertlm file - magic "LITERTLM", format version 1.5.0,
+> ~2.41GB). The two dependencies coexist in one APK with no conflicts. See
+> app_overview_en.md for the full architecture and the list of bugs found and
+> fixed along the way.
+
 This document summarizes what we learned first-hand while building an on-device
 Gemma chat demo for Android, comparing Google's two on-device LLM serving
 stacks: the legacy **MediaPipe LLM Inference API** (`com.google.mediapipe:tasks-genai`,
@@ -22,6 +30,27 @@ classes `LlmInference` / `LlmInferenceSession`) and its designated successor,
 - If you need to keep using the classic MediaPipe API, older models
   (Gemma 2B/3 1B and similar generations) still have real `.task` bundles
   available, e.g. on Hugging Face's `litert-community` org.
+
+## Versions used in this project
+
+This app bundles both stacks side by side (verified to coexist in one APK
+without dependency or native-library conflicts). Exact versions as of this
+writing:
+
+| Dependency | Version | Notes |
+|---|---|---|
+| `com.google.mediapipe:tasks-genai` | 0.10.35 | Latest published release (Apr 2026) at time of writing; still the newest available even though the API is deprecated/maintenance-mode |
+| `com.google.ai.edge.litertlm:litertlm-android` | 0.14.0 | Latest release; corresponds to LiteRT-LM GitHub release `v0.14.0` |
+| `.litertlm` file format | 1.5.0 (major.minor.patch) | Read from the file header (magic `LITERTLM` + version fields) of the `gemma-4-E2B-it.litertlm` file we verified; the runtime enforces the major version and will reject files with a mismatched major version |
+| Android Gradle Plugin (AGP) | 9.3.0 | |
+| Kotlin | 2.2.10 | |
+| Jetpack Compose BOM | 2026.02.01 | |
+| OkHttp (used for model downloads) | 4.12.0 | |
+
+Packaging both stacks together roughly doubles the native-library footprint:
+our debug APK grew from ~129MB (MediaPipe only) to ~176MB (MediaPipe +
+LiteRT-LM). If you only need one stack, drop the unused dependency to keep
+APK size down.
 
 ## How are MediaPipe and LiteRT-LM related?
 
@@ -155,17 +184,19 @@ and does not depend on LiteRT-LM at all.
 
 ## Recommendation
 
-- **For a new project, or if you want access to the latest models (Gemma 4
-  and beyond):** use **LiteRT-LM**. It's where Google's engineering investment
-  and new model releases are going.
-- **For an existing MediaPipe-based app that only needs older/smaller models**
+- For a new project, or if you want access to the latest models (Gemma 4 and
+  beyond): use LiteRT-LM. It's where Google's engineering investment and new
+  model releases are going.
+- For an existing MediaPipe-based app that only needs older/smaller models
   (e.g. Gemma 3 1B-IT, which we've verified works well): staying on MediaPipe
-  `tasks-genai` is a reasonable, lower-effort choice, as long as you're aware
-  it won't gain new models or features.
-- **A hybrid app** (offering multiple model choices, some on each stack) is
-  possible but means carrying two dependencies/runtimes and two different
-  inference code paths — worth it only if you specifically need both an
-  already-integrated legacy model and a newer one.
+  tasks-genai is a reasonable, lower-effort choice, as long as you're aware it
+  won't gain new models or features.
+- A hybrid app (offering multiple model choices, some on each stack) is
+  possible and is exactly what this project's demo app now does - it carries
+  both dependencies/runtimes and two different inference code paths behind a
+  shared adapter interface, and both models are confirmed working. It's worth
+  the extra complexity when you specifically need both an already-integrated
+  legacy model and a newer one; otherwise, picking a single stack is simpler.
 
 ## References
 
