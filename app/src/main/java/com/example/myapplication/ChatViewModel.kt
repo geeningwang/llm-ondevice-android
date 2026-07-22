@@ -85,6 +85,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGpuAccelerated = MutableStateFlow(false)
     val isGpuAccelerated: StateFlow<Boolean> = _isGpuAccelerated.asStateFlow()
 
+    private val _sessionId = MutableStateFlow("")
+    val sessionId: StateFlow<String> = _sessionId.asStateFlow()
+
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
@@ -117,6 +120,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun downloadAndInit(forceRedownload: Boolean = false) {
         val option = _selectedModel.value
         val modelFile = File(getApplication<Application>().filesDir, option.fileName)
+
+        // Generate a unique session ID for this startup run and notify telemetry manager
+        val newSessionId = java.util.UUID.randomUUID().toString()
+        _sessionId.value = newSessionId
+        TelemetryManager.updateSessionContext(newSessionId, option.id)
 
         viewModelScope.launch {
             try {
@@ -264,8 +272,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         engineAdapter = null
         _tokensPerSecond.value = 0f
         _isGpuAccelerated.value = false
+        _sessionId.value = ""
         _messages.value = emptyList()
         _modelState.value = ModelState.Idle
+        TelemetryManager.flush()
     }
 
     fun clearStorage() {
@@ -274,8 +284,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             modelFile.delete()
         }
         log("Cleared local model file and reset app state.")
+        _sessionId.value = ""
         _modelState.value = ModelState.Idle
         _messages.value = emptyList()
+        TelemetryManager.flush()
     }
 
     private fun updateLastAiMessage(text: String) {

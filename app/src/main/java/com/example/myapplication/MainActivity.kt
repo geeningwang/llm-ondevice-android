@@ -547,6 +547,16 @@ fun SystemStatusPane(
                 gpuPercent = gpuLoad
             )
             history = (history + sample).takeLast(MAX_METRIC_SAMPLES)
+
+            // Buffer this sample to the telemetry collector background uploader
+            TelemetryManager.addSample(
+                cpuPercent = cpuPercent,
+                totalPssMb = totalPssMb,
+                nativeHeapMb = nativeHeapMb,
+                tokensPerSecond = currentTokSec,
+                gpuPercent = gpuLoad,
+                thermalStatus = thermalText
+            )
         }
     }
 
