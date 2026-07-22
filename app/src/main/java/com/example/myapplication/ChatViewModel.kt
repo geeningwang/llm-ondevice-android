@@ -74,6 +74,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
 
+    private val _tokensPerSecond = MutableStateFlow(0f)
+    val tokensPerSecond: StateFlow<Float> = _tokensPerSecond.asStateFlow()
+
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
@@ -163,12 +166,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val adapter = EngineAdapter.create(option.backend, getApplication())
             engineAdapter = adapter
             partialResultsJob = viewModelScope.launch {
+                var tokenCount = 0
+                var generationStartTime = 0L
+
                 adapter.partialResults.collect { (text, done) ->
+                    if (tokenCount == 0 && text.isNotEmpty()) {
+                        generationStartTime = System.currentTimeMillis()
+                    }
+                    if (text.isNotEmpty()) {
+                        tokenCount++
+                        val elapsedSec = (System.currentTimeMillis() - generationStartTime) / 1000f
+                        if (elapsedSec > 0.05f) {
+                            _tokensPerSecond.value = tokenCount / elapsedSec
+                        }
+                    }
                     currentResponse.append(text)
                     updateLastAiMessage(currentResponse.toString())
                     if (done) {
+                        val totalSec = (System.currentTimeMillis() - generationStartTime) / 1000f
+                        val finalSpeed = if (totalSec > 0) tokenCount / totalSec else 0f
+                        _tokensPerSecond.value = finalSpeed
                         _isGenerating.value = false
-                        log("Response complete.")
+                        log("Response complete. ($tokenCount tokens, %.1f tok/s)".format(finalSpeed))
                         currentResponse.clear()
                     }
                 }
@@ -202,6 +221,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value += ChatMessage(text, true)
         _messages.value += ChatMessage("...", false) // Placeholder for AI response
         _isGenerating.value = true
+        _tokensPerSecond.value = 0f
         currentResponse.clear()
         log("Generating response...")
 
@@ -219,6 +239,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         partialResultsJob = null
         engineAdapter?.close()
         engineAdapter = null
+        _tokensPerSecond.value = 0f
         _messages.value = emptyList()
         _modelState.value = ModelState.Idle
     }

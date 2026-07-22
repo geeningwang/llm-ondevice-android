@@ -47,9 +47,16 @@ appropriate for your use case.
   screens, chat screen (with persistent `SystemStatusPane` + scrollable `LogPanel`
   at the bottom), error screen with retry/reset actions.
 
-## System Resource Monitoring: Memory PSS & Native Heap
+## System Resource & LLM Performance Monitoring
 
-The app includes a real-time system status pane (`SystemStatusPane` in `MainActivity.kt`) that monitors CPU usage and memory metrics continuously, displaying live numerical values alongside a 60-second real-time line chart (`SystemStatusChart`). This pane is positioned at the top level of the UI hierarchy, making it persistent across all screens (Model Setup, Downloading, Initializing, Chatting, and Error screens) so that memory allocation during model downloading, engine initialization, and token generation can be observed seamlessly.
+The app includes a real-time system status pane (`SystemStatusPane` in `MainActivity.kt`) that monitors CPU usage, memory metrics, and live token generation speed continuously, displaying numerical values in a space-optimized 2x2 grid alongside a 60-second real-time Compose Canvas line chart (`SystemStatusChart`). This pane is positioned at the top level of the UI hierarchy, making it persistent across all screens (Model Setup, Downloading, Initializing, Chatting, and Error screens) so that system impact during model downloading, engine initialization, and token generation can be observed seamlessly.
+
+### Monitored Metrics & 2x2 Legend Layout
+
+- **CPU Usage** (Orange): Process CPU time delta measured via `/proc/self/stat`.
+- **Memory PSS (Proportional Set Size)** (Green): Total RAM footprint allocated to the app process by Android OS (retrieved via `Debug.getMemoryInfo()`).
+- **Native Heap** (Purple): C/C++ dynamic memory allocated by `malloc`/`new` for model weight tensors and KV-cache buffers (retrieved via `Debug.getNativeHeapAllocatedSize()`).
+- **Tokens/s** (Cyan): Live generation throughput ($\text{tok/s}$) measured in real time during LLM token streaming.
 
 ### Memory PSS (Proportional Set Size)
 

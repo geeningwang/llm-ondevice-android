@@ -45,9 +45,16 @@ _最后更新：2026-07-22_
   界面、聊天界面（带常驻的 `SystemStatusPane` 系统状态面板，底部带可滚动 `LogPanel`
   日志面板）、以及带重试/重置操作的错误界面。
 
-## 系统资源监控：Memory PSS 与 Native Heap
+## 系统资源与 LLM 性能监控
 
-应用中内置了一个实时的系统状态监控面板（`MainActivity.kt` 中的 `SystemStatusPane`），持续监控 CPU 使用率与内存指标，并结合一个 60 秒的历史折线图（`SystemStatusChart`）展示变化趋势。该面板位于 UI 布局顶层，在所有界面（模型选择、下载中、初始化中、聊天界面、错误界面）之间保持全局常驻，使得模型下载、引擎初始化和 Token 生成过程中的内存分配动态能够被连续观察。
+应用中内置了一个实时的系统状态监控面板（`MainActivity.kt` 中的 `SystemStatusPane`），持续监控 CPU 使用率、内存指标以及 Token 生成速度（Tokens/s），并在紧凑的 2x2 网格中展示数值指标，同时配合 60 秒历史折线图（`SystemStatusChart`）展示变化趋势。该面板位于 UI 布局顶层，在所有界面（模型选择、下载中、初始化中、聊天界面、错误界面）之间保持全局常驻，使得系统影响在模型下载、引擎初始化和 Token 生成过程中能够被连续观察。
+
+### 监控指标与 2x2 布局
+
+- **CPU Usage**（橙色）：通过 `/proc/self/stat` 差值计算的进程 CPU 使用率。
+- **Memory PSS**（绿色）：通过 `Debug.getMemoryInfo()` 获取的进程实际占用系统 RAM 份额。
+- **Native Heap**（紫色）：通过 `Debug.getNativeHeapAllocatedSize()` 获取的 C/C++ 动态堆内存（LLM 权重张量和 KV 缓存）。
+- **Tokens/s**（青色）：LLM 生成 Token 过程中的实时吞吐速度（$\text{tok/s}$）。
 
 ### Memory PSS（Proportional Set Size，比例集大小）
 

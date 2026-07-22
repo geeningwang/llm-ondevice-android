@@ -66,6 +66,7 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
     val messages by viewModel.messages.collectAsState()
     val modelState by viewModel.modelState.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
+    val tokensPerSecond by viewModel.tokensPerSecond.collectAsState()
     val logs by viewModel.logs.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
     
@@ -108,6 +109,7 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                 .padding(16.dp)
         ) {
             SystemStatusPane(
+                tokensPerSecond = if (isGenerating) tokensPerSecond else 0f,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -416,22 +418,28 @@ private fun readProcessCpuTicks(): Long {
 data class SystemMetricSample(
     val cpuPercent: Float,
     val totalPssMb: Float,
-    val nativeHeapMb: Float
+    val nativeHeapMb: Float,
+    val tokensPerSecond: Float = 0f
 )
 
 private const val MAX_METRIC_SAMPLES = 60
 
 /**
  * Always-visible system status pane shown at the top of the chat screen (occupying roughly 1/3
- * of the available vertical space) so the user can see the live memory and CPU cost of running
- * the on-device model along with a historical line chart. Samples are taken once per second.
+ * of the available vertical space) so the user can see live memory, CPU cost, and token generation
+ * speed along with a historical line chart. Samples are taken once per second.
  */
 @Composable
-fun SystemStatusPane(modifier: Modifier = Modifier) {
+fun SystemStatusPane(
+    tokensPerSecond: Float = 0f,
+    modifier: Modifier = Modifier
+) {
     var totalPssMb by remember { mutableStateOf(0f) }
     var nativeHeapMb by remember { mutableStateOf(0f) }
     var cpuPercent by remember { mutableStateOf(0f) }
     var history by remember { mutableStateOf(listOf<SystemMetricSample>()) }
+
+    val currentTokSec by rememberUpdatedState(tokensPerSecond)
 
     LaunchedEffect(Unit) {
         var lastTicks = readProcessCpuTicks()
@@ -460,7 +468,8 @@ fun SystemStatusPane(modifier: Modifier = Modifier) {
             val sample = SystemMetricSample(
                 cpuPercent = cpuPercent,
                 totalPssMb = totalPssMb,
-                nativeHeapMb = nativeHeapMb
+                nativeHeapMb = nativeHeapMb,
+                tokensPerSecond = currentTokSec
             )
             history = (history + sample).takeLast(MAX_METRIC_SAMPLES)
         }
@@ -469,6 +478,7 @@ fun SystemStatusPane(modifier: Modifier = Modifier) {
     val cpuColor = Color(0xFFFF9800)      // Orange
     val pssColor = Color(0xFF10B981)      // Green
     val nativeColor = Color(0xFF8B5CF6)   // Purple
+    val tokenColor = Color(0xFF06B6D4)    // Cyan/Teal
 
     Surface(
         modifier = modifier,
@@ -498,17 +508,35 @@ fun SystemStatusPane(modifier: Modifier = Modifier) {
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
-            StatusRow("CPU Usage", "%.1f%%".format(cpuPercent), cpuColor)
-            StatusRow("Memory (PSS)", "%.1f MB".format(totalPssMb), pssColor)
-            StatusRow("Native Heap", "%.1f MB".format(nativeHeapMb), nativeColor)
+            
+            // 2x2 grid layout for status indicators to minimize vertical space consumption
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    StatusCell("CPU Usage", "%.1f%%".format(cpuPercent), cpuColor, Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    StatusCell("Memory (PSS)", "%.1f MB".format(totalPssMb), pssColor, Modifier.weight(1f))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    StatusCell("Native Heap", "%.1f MB".format(nativeHeapMb), nativeColor, Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    StatusCell("Tokens/s", "%.1f tok/s".format(tokensPerSecond), tokenColor, Modifier.weight(1f))
+                }
+            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             SystemStatusChart(
                 history = history,
                 cpuColor = cpuColor,
                 pssColor = pssColor,
                 nativeColor = nativeColor,
+                tokenColor = tokenColor,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -518,32 +546,42 @@ fun SystemStatusPane(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatusRow(label: String, value: String, indicatorColor: Color) {
+private fun StatusCell(
+    label: String,
+    value: String,
+    indicatorColor: Color,
+    modifier: Modifier = Modifier
+) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 1.dp),
+        modifier = modifier,
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f, fill = false)
+        ) {
             Surface(
-                modifier = Modifier.size(8.dp),
+                modifier = Modifier.size(7.dp),
                 shape = CircleShape,
                 color = indicatorColor
             ) {}
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 label,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
             )
         }
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
     }
 }
@@ -554,6 +592,7 @@ fun SystemStatusChart(
     cpuColor: Color,
     pssColor: Color,
     nativeColor: Color,
+    tokenColor: Color,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
@@ -585,6 +624,7 @@ fun SystemStatusChart(
 
         val maxCpu = maxOf(100f, history.maxOfOrNull { it.cpuPercent } ?: 100f)
         val maxMem = maxOf(500f, (history.maxOfOrNull { maxOf(it.totalPssMb, it.nativeHeapMb) } ?: 500f) * 1.15f)
+        val maxTokSec = maxOf(30f, (history.maxOfOrNull { it.tokensPerSecond } ?: 30f) * 1.2f)
 
         fun getX(index: Int): Float {
             return (index.toFloat() / (MAX_METRIC_SAMPLES - 1)) * width
@@ -600,24 +640,33 @@ fun SystemStatusChart(
             return topPadding + chartHeight * (1f - norm)
         }
 
+        fun getTokY(tokSec: Float): Float {
+            val norm = (tokSec / maxTokSec).coerceIn(0f, 1f)
+            return topPadding + chartHeight * (1f - norm)
+        }
+
         val cpuPath = Path()
         val pssPath = Path()
         val nativePath = Path()
+        val tokenPath = Path()
 
         history.forEachIndexed { i, sample ->
             val x = getX(i)
             val cpuY = getCpuY(sample.cpuPercent)
             val pssY = getMemY(sample.totalPssMb)
             val nativeY = getMemY(sample.nativeHeapMb)
+            val tokY = getTokY(sample.tokensPerSecond)
 
             if (i == 0) {
                 cpuPath.moveTo(x, cpuY)
                 pssPath.moveTo(x, pssY)
                 nativePath.moveTo(x, nativeY)
+                tokenPath.moveTo(x, tokY)
             } else {
                 cpuPath.lineTo(x, cpuY)
                 pssPath.lineTo(x, pssY)
                 nativePath.lineTo(x, nativeY)
+                tokenPath.lineTo(x, tokY)
             }
         }
 
@@ -641,7 +690,7 @@ fun SystemStatusChart(
             )
         )
 
-        // Draw CPU, PSS, and Native Heap lines
+        // Draw CPU, PSS, Native Heap, and Tokens/s lines
         drawPath(
             path = cpuPath,
             color = cpuColor,
@@ -657,6 +706,11 @@ fun SystemStatusChart(
             color = nativeColor,
             style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
         )
+        drawPath(
+            path = tokenPath,
+            color = tokenColor,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
 
         // Draw current sample dots at latest point
         val latestIndex = history.size - 1
@@ -664,6 +718,7 @@ fun SystemStatusChart(
         val latestX = getX(latestIndex)
         val dotRadius = 3.5.dp.toPx()
 
+        drawCircle(color = tokenColor, radius = dotRadius, center = Offset(latestX, getTokY(latestSample.tokensPerSecond)))
         drawCircle(color = nativeColor, radius = dotRadius, center = Offset(latestX, getMemY(latestSample.nativeHeapMb)))
         drawCircle(color = pssColor, radius = dotRadius, center = Offset(latestX, getMemY(latestSample.totalPssMb)))
         drawCircle(color = cpuColor, radius = dotRadius, center = Offset(latestX, getCpuY(latestSample.cpuPercent)))
