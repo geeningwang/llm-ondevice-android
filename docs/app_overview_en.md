@@ -19,7 +19,7 @@ what it's doing and an always-visible system-resource panel (CPU, Memory PSS, Na
 |---|---|---|---|---|
 | Gemma 3 1B-IT | MediaPipe `tasks-genai` (`LlmInference`) | `.task` (ZIP) | ~555MB | `litert-community/Gemma3-1B-IT` on Hugging Face (gated; requires accepting the Gemma license) |
 | Gemma 4 E2B-IT | LiteRT-LM | `.litertlm` | ~2.41GB | `litert-community/gemma-4-E2B-it-litert-lm` on Hugging Face (gated) |
-| Gemma 4 31B-IT | LiteRT-LM | `.litertlm` | ~18.5GB | `litert-community/gemma-4-31B-it-litert-lm` on Hugging Face (gated) |
+| Gemma 4 E4B-IT | LiteRT-LM | `.litertlm` | ~3.66GB | `litert-community/gemma-4-E4B-it-litert-lm` on Hugging Face (gated) |
 
 Both files are mirrored on a private test HTTP server for this demo (see
 `Models.kt` for the exact URLs) — that server is not a public/permanent
