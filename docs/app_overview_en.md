@@ -8,7 +8,7 @@ for anyone picking up this codebase later.
 
 ## What the app does
 
-A Kotlin + Jetpack Compose Android app that lets the user pick one of two
+A Kotlin + Jetpack Compose Android app that lets the user pick one of three
 on-device LLMs, download it (or reuse a cached copy), and chat with it
 entirely on-device (no server calls for inference). It shows a live log of
 what it's doing and an always-visible system-resource panel (CPU, Memory PSS, Native Heap, and a 60s real-time line chart) that stays active across all screens.
@@ -19,6 +19,7 @@ what it's doing and an always-visible system-resource panel (CPU, Memory PSS, Na
 |---|---|---|---|---|
 | Gemma 3 1B-IT | MediaPipe `tasks-genai` (`LlmInference`) | `.task` (ZIP) | ~555MB | `litert-community/Gemma3-1B-IT` on Hugging Face (gated; requires accepting the Gemma license) |
 | Gemma 4 E2B-IT | LiteRT-LM | `.litertlm` | ~2.41GB | `litert-community/gemma-4-E2B-it-litert-lm` on Hugging Face (gated) |
+| Gemma 4 31B-IT | LiteRT-LM | `.litertlm` | ~18.5GB | `litert-community/gemma-4-31B-it-litert-lm` on Hugging Face (gated) |
 
 Both files are mirrored on a private test HTTP server for this demo (see
 `Models.kt` for the exact URLs) — that server is not a public/permanent

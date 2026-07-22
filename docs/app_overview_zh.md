@@ -7,7 +7,7 @@ _最后更新：2026-07-22_
 
 ## 应用功能
 
-一个基于 Kotlin + Jetpack Compose 的 Android 应用，用户可以选择两个
+一个基于 Kotlin + Jetpack Compose 的 Android 应用，用户可以选择三个
 端侧大模型中的一个，下载它（或复用已缓存的副本），然后完全在设备端与
 其对话（推理过程不经过任何服务器）。应用会实时展示当前正在执行的操作
 日志，以及全局常驻的系统资源（CPU、Memory PSS、Native Heap 及 60 秒实时折线图）监控面板。
@@ -18,6 +18,7 @@ _最后更新：2026-07-22_
 |---|---|---|---|---|
 | Gemma 3 1B-IT | MediaPipe `tasks-genai`（`LlmInference`） | `.task`（ZIP） | 约 555MB | Hugging Face 上的 `litert-community/Gemma3-1B-IT`（受限仓库，需接受 Gemma 许可协议） |
 | Gemma 4 E2B-IT | LiteRT-LM | `.litertlm` | 约 2.41GB | Hugging Face 上的 `litert-community/gemma-4-E2B-it-litert-lm`（受限仓库） |
+| Gemma 4 31B-IT | LiteRT-LM | `.litertlm` | 约 18.5GB | Hugging Face 上的 `litert-community/gemma-4-31B-it-litert-lm`（受限仓库） |
 
 这两个文件目前都镜像在一台私有测试 HTTP 服务器上（具体地址见
 `Models.kt`）——该服务器并非公开/永久的分发节点；如果要用于正式部署，

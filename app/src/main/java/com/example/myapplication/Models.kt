@@ -51,5 +51,14 @@ val AVAILABLE_MODELS = listOf(
         downloadUrl = "https://34.134.65.149.nip.io/gemma-4-E2B-it.litertlm",
         fileName = "gemma-4-E2B-it.litertlm",
         approxSizeMb = 2468
+    ),
+    ModelOption(
+        id = "gemma4-31b-it",
+        displayName = "Gemma 4 31B-IT",
+        description = "Large Gemma 4 variant (~18.5GB). Requires high-RAM flagship devices & LiteRT-LM engine.",
+        backend = Backend.LITERT_LM,
+        downloadUrl = "https://34.134.65.149.nip.io/gemma-4-31B-it.litertlm",
+        fileName = "gemma-4-31B-it.litertlm",
+        approxSizeMb = 18500
     )
 )
