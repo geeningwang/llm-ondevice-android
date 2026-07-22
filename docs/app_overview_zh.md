@@ -1,6 +1,6 @@
 # 应用概览：端侧 Gemma 聊天演示应用（Android）
 
-_最后更新：2026-07-21_
+_最后更新：2026-07-22_
 
 本文档介绍这个应用做什么、是如何构建的，以及在开发过程中发现并修复的
 全部真实问题清单——便于日后接手这份代码的人快速了解背景。
@@ -10,7 +10,7 @@ _最后更新：2026-07-21_
 一个基于 Kotlin + Jetpack Compose 的 Android 应用，用户可以选择两个
 端侧大模型中的一个，下载它（或复用已缓存的副本），然后完全在设备端与
 其对话（推理过程不经过任何服务器）。应用会实时展示当前正在执行的操作
-日志，以及聊天过程中的实时系统资源（CPU/内存）面板。
+日志，以及全局常驻的系统资源（CPU、Memory PSS、Native Heap 及 60 秒实时折线图）监控面板。
 
 ## 可选模型
 
@@ -42,8 +42,26 @@ _最后更新：2026-07-21_
   （这样应用的其他部分无需关心当前用的是哪个后端）、操作日志，以及聊天
   状态管理。
 - **`MainActivity.kt`** —— Compose UI：模型选择界面、下载/初始化进度
-  界面、聊天界面（顶部带系统状态面板，底部带可滚动日志面板）、以及带
-  重试/重置操作的错误界面。
+  界面、聊天界面（带常驻的 `SystemStatusPane` 系统状态面板，底部带可滚动 `LogPanel`
+  日志面板）、以及带重试/重置操作的错误界面。
+
+## 系统资源监控：Memory PSS 与 Native Heap
+
+应用中内置了一个实时的系统状态监控面板（`MainActivity.kt` 中的 `SystemStatusPane`），持续监控 CPU 使用率与内存指标，并结合一个 60 秒的历史折线图（`SystemStatusChart`）展示变化趋势。该面板位于 UI 布局顶层，在所有界面（模型选择、下载中、初始化中、聊天界面、错误界面）之间保持全局常驻，使得模型下载、引擎初始化和 Token 生成过程中的内存分配动态能够被连续观察。
+
+### Memory PSS（Proportional Set Size，比例集大小）
+
+- **定义**：PSS 是 Android 操作系统用于衡量一个应用进程真实 RAM 占用量的核心指标。它包含该进程独占的私有内存（Private Clean + Private Dirty），以及按共享进程数比例分摊的共享内存（Shared Clean + Shared Dirty，例如系统框架库、ART 运行时库和共享动态链接库 `.so` 文件）。
+- **为何不直接用 RSS**：传统的驻留集大小（RSS）会在多个共享内存页的进程间重复计算，从而高估内存占用。PSS 能够提供准确、无重叠计算的数值，反映此进程实际需要为系统 RAM 承担的责任份额。
+- **Android 中的获取方式**：`Debug.MemoryInfo().totalPss`（通过 `Debug.getMemoryInfo(memInfo)` 获取，单位为 KB，除以 `1024f` 转换为 MB）。
+- **在端侧大模型中的作用**：PSS 反映了整个应用进程对系统内存的总影响，包含了 Kotlin/Java ART 虚拟机堆、Jetpack Compose UI 渲染缓冲区、系统图形驱动、mmapped 映射文件以及底层 C++ 推理引擎的原生内存开销。
+
+### Native Heap（原生堆）
+
+- **定义**：Native Heap 指通过 C/C++ 动态内存分配函数（`malloc`、`calloc`、`posix_memalign`、`new` 等，由 Android 的 `jemalloc` / `scudo` 分配器管理）在 Native 堆上分配的内存，运行在 ART (Android Runtime) 垃圾回收堆之外。
+- **为何对端侧大模型至关重要**：端侧 LLM 推理引擎（如 MediaPipe `LlmInference`、LiteRT-LM `Engine`、XNNPACK、OpenCL 与 Vulkan 加速层）均为 C++ Native 库。它们会将模型权重张量、上下文工作区缓冲区以及 KV 缓存（Key-Value Cache，用于多轮对话生成）直接分配在 Native 堆或 Native 显存/内存空间中。
+- **Android 中的获取方式**：`Debug.getNativeHeapAllocatedSize()`（获取单位为 Byte，除以 `1024f * 1024f` 转换为 MB）。
+- **在端侧大模型中的作用**：Native Heap 是观察 LLM C++ 引擎内存开销的直接指标。当大模型进行初始化或流式生成 Token 时，由于权重和 KV 缓存状态被写入 Native 内存，Native Heap 会出现明显的上升。通过监控 Native Heap，开发者可以将 LLM 的底层 C++ 内存消耗与 Java 运行时的内存分配隔离开进行独立分析。
 
 ## 开发过程中发现并修复的问题
 
@@ -84,10 +102,12 @@ _最后更新：2026-07-21_
    但保留已下载的模型文件缓存。
 9. **无法了解应用当前在做什么。** 增加了一个带时间戳的持久操作日志
    （下载/校验/初始化进度、错误信息），显示在屏幕底部的可滚动面板中。
-10. **无法了解资源消耗情况。** 增加了一个实时系统状态面板（通过
-    `/proc/self/stat` 的差值计算 CPU 使用率，通过 `Debug.getMemoryInfo()`
-    获取 PSS 内存，通过 `Debug.getNativeHeapAllocatedSize()` 获取 native
-    堆大小），在模型加载完成后显示在聊天界面上方。
+10. **无法了解资源消耗情况。** 增加了全局常驻的系统状态面板（`SystemStatusPane`），
+    包含数值指标（通过 `/proc/self/stat` 的差值计算 CPU 使用率，通过
+    `Debug.getMemoryInfo()` 获取 Memory PSS，通过 `Debug.getNativeHeapAllocatedSize()`
+    获取 Native Heap）以及一个 60 秒精细滚动的 Compose Canvas 实时折线图
+    （`SystemStatusChart`）。将其移至 UI 布局顶层，使得在模型选择、下载、初始化、
+    聊天及错误等不同界面间切换时，采样保持连续不断。
 11. **具有破坏性操作的按钮（"Clear Internal Storage"／"Clear Storage &
     Reset"）文字是红色的，但没有边框**，因为它们当时使用的是
     `TextButton`（该组件本身设计上就没有边框）。解决方式是改用

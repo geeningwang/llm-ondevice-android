@@ -8,13 +8,17 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -27,7 +31,12 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -98,7 +107,13 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            SystemStatusPane(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.weight(2f).fillMaxWidth()) {
                 when (val state = modelState) {
                     is ModelState.Idle -> {
                         ModelSetupScreen(
@@ -116,28 +131,18 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                         ProgressScreen("Initializing Model...", null)
                     }
                     is ModelState.Ready -> {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            SystemStatusPane(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            ChatScreen(
-                                modifier = Modifier
-                                    .weight(2f)
-                                    .fillMaxWidth(),
-                                messages = messages,
-                                inputText = inputText,
-                                onInputChange = { inputText = it },
-                                onSend = {
-                                    viewModel.sendMessage(inputText)
-                                    inputText = ""
-                                },
-                                isGenerating = isGenerating,
-                                modelDisplayName = selectedModel.displayName
-                            )
-                        }
+                        ChatScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            messages = messages,
+                            inputText = inputText,
+                            onInputChange = { inputText = it },
+                            onSend = {
+                                viewModel.sendMessage(inputText)
+                                inputText = ""
+                            },
+                            isGenerating = isGenerating,
+                            modelDisplayName = selectedModel.displayName
+                        )
                     }
                     is ModelState.Error -> {
                         Column(
@@ -249,7 +254,9 @@ fun ModelSetupScreen(
     onClearStorage: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -406,16 +413,25 @@ private fun readProcessCpuTicks(): Long {
     }
 }
 
+data class SystemMetricSample(
+    val cpuPercent: Float,
+    val totalPssMb: Float,
+    val nativeHeapMb: Float
+)
+
+private const val MAX_METRIC_SAMPLES = 60
+
 /**
  * Always-visible system status pane shown at the top of the chat screen (occupying roughly 1/3
  * of the available vertical space) so the user can see the live memory and CPU cost of running
- * the on-device model. Samples are taken once per second.
+ * the on-device model along with a historical line chart. Samples are taken once per second.
  */
 @Composable
 fun SystemStatusPane(modifier: Modifier = Modifier) {
     var totalPssMb by remember { mutableStateOf(0f) }
     var nativeHeapMb by remember { mutableStateOf(0f) }
     var cpuPercent by remember { mutableStateOf(0f) }
+    var history by remember { mutableStateOf(listOf<SystemMetricSample>()) }
 
     LaunchedEffect(Unit) {
         var lastTicks = readProcessCpuTicks()
@@ -440,8 +456,19 @@ fun SystemStatusPane(modifier: Modifier = Modifier) {
             }
             lastTicks = ticks
             lastWallMs = wallMs
+
+            val sample = SystemMetricSample(
+                cpuPercent = cpuPercent,
+                totalPssMb = totalPssMb,
+                nativeHeapMb = nativeHeapMb
+            )
+            history = (history + sample).takeLast(MAX_METRIC_SAMPLES)
         }
     }
+
+    val cpuColor = Color(0xFFFF9800)      // Orange
+    val pssColor = Color(0xFF10B981)      // Green
+    val nativeColor = Color(0xFF8B5CF6)   // Purple
 
     Surface(
         modifier = modifier,
@@ -451,42 +478,195 @@ fun SystemStatusPane(modifier: Modifier = Modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.Center
+                .padding(12.dp)
         ) {
-            Text(
-                "System Status",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "System Status",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "60s history",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            StatusRow("CPU Usage", "%.1f%%".format(cpuPercent), cpuColor)
+            StatusRow("Memory (PSS)", "%.1f MB".format(totalPssMb), pssColor)
+            StatusRow("Native Heap", "%.1f MB".format(nativeHeapMb), nativeColor)
+
             Spacer(modifier = Modifier.height(8.dp))
-            StatusRow("CPU Usage", "%.1f%%".format(cpuPercent))
-            StatusRow("Memory (PSS)", "%.1f MB".format(totalPssMb))
-            StatusRow("Native Heap", "%.1f MB".format(nativeHeapMb))
+
+            SystemStatusChart(
+                history = history,
+                cpuColor = cpuColor,
+                pssColor = pssColor,
+                nativeColor = nativeColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
         }
     }
 }
 
 @Composable
-private fun StatusRow(label: String, value: String) {
+private fun StatusRow(label: String, value: String, indicatorColor: Color) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(vertical = 1.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier.size(8.dp),
+                shape = CircleShape,
+                color = indicatorColor
+            ) {}
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+fun SystemStatusChart(
+    history: List<SystemMetricSample>,
+    cpuColor: Color,
+    pssColor: Color,
+    nativeColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+
+        if (width <= 0f || height <= 0f) return@Canvas
+
+        val topPadding = 4.dp.toPx()
+        val bottomPadding = 4.dp.toPx()
+        val chartHeight = height - topPadding - bottomPadding
+
+        if (chartHeight <= 0f) return@Canvas
+
+        // Draw horizontal grid lines
+        val gridColor = Color.Gray.copy(alpha = 0.2f)
+        val gridLineCount = 3
+        for (i in 0..gridLineCount) {
+            val y = topPadding + chartHeight * (i.toFloat() / gridLineCount)
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, y),
+                end = Offset(width, y),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+
+        if (history.size < 2) return@Canvas
+
+        val maxCpu = maxOf(100f, history.maxOfOrNull { it.cpuPercent } ?: 100f)
+        val maxMem = maxOf(500f, (history.maxOfOrNull { maxOf(it.totalPssMb, it.nativeHeapMb) } ?: 500f) * 1.15f)
+
+        fun getX(index: Int): Float {
+            return (index.toFloat() / (MAX_METRIC_SAMPLES - 1)) * width
+        }
+
+        fun getCpuY(cpu: Float): Float {
+            val norm = (cpu / maxCpu).coerceIn(0f, 1f)
+            return topPadding + chartHeight * (1f - norm)
+        }
+
+        fun getMemY(memMb: Float): Float {
+            val norm = (memMb / maxMem).coerceIn(0f, 1f)
+            return topPadding + chartHeight * (1f - norm)
+        }
+
+        val cpuPath = Path()
+        val pssPath = Path()
+        val nativePath = Path()
+
+        history.forEachIndexed { i, sample ->
+            val x = getX(i)
+            val cpuY = getCpuY(sample.cpuPercent)
+            val pssY = getMemY(sample.totalPssMb)
+            val nativeY = getMemY(sample.nativeHeapMb)
+
+            if (i == 0) {
+                cpuPath.moveTo(x, cpuY)
+                pssPath.moveTo(x, pssY)
+                nativePath.moveTo(x, nativeY)
+            } else {
+                cpuPath.lineTo(x, cpuY)
+                pssPath.lineTo(x, pssY)
+                nativePath.lineTo(x, nativeY)
+            }
+        }
+
+        val strokeWidth = 2.dp.toPx()
+
+        // Translucent gradient fill under the CPU path
+        val firstX = getX(0)
+        val lastX = getX(history.size - 1)
+        val cpuFillPath = Path().apply {
+            addPath(cpuPath)
+            lineTo(lastX, topPadding + chartHeight)
+            lineTo(firstX, topPadding + chartHeight)
+            close()
+        }
+        drawPath(
+            path = cpuFillPath,
+            brush = Brush.verticalGradient(
+                colors = listOf(cpuColor.copy(alpha = 0.2f), cpuColor.copy(alpha = 0.0f)),
+                startY = topPadding,
+                endY = topPadding + chartHeight
+            )
+        )
+
+        // Draw CPU, PSS, and Native Heap lines
+        drawPath(
+            path = cpuPath,
+            color = cpuColor,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+        drawPath(
+            path = pssPath,
+            color = pssColor,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+        drawPath(
+            path = nativePath,
+            color = nativeColor,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+
+        // Draw current sample dots at latest point
+        val latestIndex = history.size - 1
+        val latestSample = history[latestIndex]
+        val latestX = getX(latestIndex)
+        val dotRadius = 3.5.dp.toPx()
+
+        drawCircle(color = nativeColor, radius = dotRadius, center = Offset(latestX, getMemY(latestSample.nativeHeapMb)))
+        drawCircle(color = pssColor, radius = dotRadius, center = Offset(latestX, getMemY(latestSample.totalPssMb)))
+        drawCircle(color = cpuColor, radius = dotRadius, center = Offset(latestX, getCpuY(latestSample.cpuPercent)))
     }
 }
 

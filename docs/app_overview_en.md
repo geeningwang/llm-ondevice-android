@@ -1,6 +1,6 @@
 # App Overview: On-Device Gemma Chat Demo (Android)
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-22_
 
 This document describes what this app does, how it's built, and the full
 list of real bugs/issues found and fixed while building it — useful context
@@ -11,7 +11,7 @@ for anyone picking up this codebase later.
 A Kotlin + Jetpack Compose Android app that lets the user pick one of two
 on-device LLMs, download it (or reuse a cached copy), and chat with it
 entirely on-device (no server calls for inference). It shows a live log of
-what it's doing and a live system-resource panel (CPU/memory) while chatting.
+what it's doing and an always-visible system-resource panel (CPU, Memory PSS, Native Heap, and a 60s real-time line chart) that stays active across all screens.
 
 ## Available models
 
@@ -44,8 +44,26 @@ appropriate for your use case.
   `LiteRtLmInferenceModel` behind one shape (so the rest of the app doesn't
   care which backend is active), the action log, and chat state.
 - **`MainActivity.kt`** — Compose UI: model picker, download/init progress
-  screens, chat screen (with system status pane + scrollable log panel at the
-  bottom), error screen with retry/reset actions.
+  screens, chat screen (with persistent `SystemStatusPane` + scrollable `LogPanel`
+  at the bottom), error screen with retry/reset actions.
+
+## System Resource Monitoring: Memory PSS & Native Heap
+
+The app includes a real-time system status pane (`SystemStatusPane` in `MainActivity.kt`) that monitors CPU usage and memory metrics continuously, displaying live numerical values alongside a 60-second real-time line chart (`SystemStatusChart`). This pane is positioned at the top level of the UI hierarchy, making it persistent across all screens (Model Setup, Downloading, Initializing, Chatting, and Error screens) so that memory allocation during model downloading, engine initialization, and token generation can be observed seamlessly.
+
+### Memory PSS (Proportional Set Size)
+
+- **Definition**: PSS is the primary metric used by the Android OS to measure an application process's true RAM footprint. It consists of the process's private memory (Private Clean + Private Dirty) plus its proportional share of shared memory (Shared Clean + Shared Dirty divided evenly among all processes sharing those RAM pages, such as system frameworks, ART runtime libraries, and shared shared-object `.so` files).
+- **Why RSS is insufficient**: Traditional Resident Set Size (RSS) double-counts shared memory pages across processes, overestimating RAM usage. PSS provides an accurate, non-overlapping representation of how much system RAM this process is directly responsible for holding onto.
+- **How it's measured in Android**: `Debug.MemoryInfo().totalPss` (retrieved via `Debug.getMemoryInfo(memInfo)` in KB, converted to MB by dividing by `1024f`).
+- **Role in On-Device LLM Execution**: PSS reflects the total memory impact of the entire app process—including the Kotlin/Java ART runtime, Jetpack Compose UI layout buffers, system graphics drivers, mmapped file buffers, and the native C++ inference engine footprint.
+
+### Native Heap
+
+- **Definition**: Native Heap represents memory allocated dynamically on the C/C++ heap via native memory allocators (`malloc`, `calloc`, `posix_memalign`, `new`, etc., managed by Android's `jemalloc` / `scudo`). It operates outside the ART (Android Runtime) garbage-collected Java heap.
+- **Why it is critical for On-Device LLMs**: On-device LLM engines (MediaPipe `LlmInference`, LiteRT-LM `Engine`, XNNPACK, OpenCL, and Vulkan acceleration layers) are C++ native runtimes. They allocate weight tensors, context workspace buffers, and Key-Value (KV) caches directly on the native heap or in native memory allocations.
+- **How it's measured in Android**: `Debug.getNativeHeapAllocatedSize()` (retrieved in bytes, converted to MB by dividing by `1024f * 1024f`).
+- **Role in On-Device LLM Execution**: Native Heap is the direct, real-time indicator of the LLM model's C++ engine memory footprint. When an LLM initializes or generates response tokens, Native Heap usage spikes as model weights and KV-cache states are allocated in native memory. Monitoring Native Heap allows developers to observe LLM memory overhead separately from Java runtime allocations.
 
 ## Bugs found and fixed during development
 
@@ -89,10 +107,13 @@ appropriate for your use case.
 9. **No visibility into what the app is doing.** Added a persistent,
    timestamped action log (download/verify/init progress, errors) shown in a
    scrollable panel at the bottom of the screen.
-10. **No visibility into resource cost.** Added a live system-status panel
-    (CPU % via `/proc/self/stat` deltas, PSS via `Debug.getMemoryInfo()`,
-    native heap via `Debug.getNativeHeapAllocatedSize()`) shown above the chat
-    while a model is loaded.
+10. **No visibility into resource cost.** Added an always-visible system-status
+    panel (`SystemStatusPane`) featuring numerical metrics (CPU % via `/proc/self/stat`
+    deltas, Memory PSS via `Debug.getMemoryInfo()`, and Native Heap via
+    `Debug.getNativeHeapAllocatedSize()`) alongside a 60-second real-time Compose Canvas
+    line chart (`SystemStatusChart`). Moved the pane to the top layout level so it
+    remains active and continuously sampled across all screen transitions (Model Setup,
+    Downloading, Initializing, Chatting, and Error screens).
 11. **Destructive buttons ("Clear Internal Storage" / "Clear Storage &
     Reset") had red text but no border**, since they were `TextButton`s
     (borderless by design). Switched to `OutlinedButton` with an explicit red
