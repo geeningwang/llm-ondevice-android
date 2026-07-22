@@ -35,13 +35,16 @@ class LiteRtLmInferenceModel(private val context: Context) {
     private var engine: Engine? = null
     private var conversation: Conversation? = null
 
+    var isGpuAccelerated: Boolean = false
+        private set
+
     private val _partialResults = MutableSharedFlow<Pair<String, Boolean>>(
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val partialResults: SharedFlow<Pair<String, Boolean>> = _partialResults.asSharedFlow()
 
-    fun initialize(modelPath: String): Result<Unit> {
+    fun initialize(modelPath: String, useGpu: Boolean): Result<Unit> {
         val modelFile = File(modelPath)
         if (!modelFile.exists()) {
             return Result.failure(Exception("Model file not found at $modelPath"))
@@ -52,21 +55,20 @@ class LiteRtLmInferenceModel(private val context: Context) {
         }
 
         return try {
-            // Defaulting to the CPU backend for broad compatibility. The GPU backend needs extra
-            // <uses-native-library> manifest entries and is not guaranteed to be present on every
-            // device; NPU needs a device-specific compiled .litertlm variant.
-            val engineConfig = EngineConfig(
+            val backendOption = if (useGpu) Backend.GPU() else Backend.CPU()
+            val config = EngineConfig(
                 modelPath = modelPath,
-                backend = Backend.CPU(),
+                backend = backendOption,
                 cacheDir = context.cacheDir.path
             )
-            val newEngine = Engine(engineConfig)
+            val newEngine = Engine(config)
             newEngine.initialize()
             engine = newEngine
             conversation = newEngine.createConversation()
+            isGpuAccelerated = useGpu
             Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        } catch (t: Throwable) {
+            Result.failure(if (t is Exception) t else Exception(t.message ?: t.toString()))
         }
     }
 
@@ -95,5 +97,6 @@ class LiteRtLmInferenceModel(private val context: Context) {
         conversation = null
         engine?.close()
         engine = null
+        isGpuAccelerated = false
     }
 }

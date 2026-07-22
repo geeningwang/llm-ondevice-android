@@ -1,7 +1,10 @@
 package com.example.myapplication
 
+import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.os.Debug
+import android.os.PowerManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -67,6 +71,7 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
     val modelState by viewModel.modelState.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val tokensPerSecond by viewModel.tokensPerSecond.collectAsState()
+    val isGpuAccelerated by viewModel.isGpuAccelerated.collectAsState()
     val logs by viewModel.logs.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
     
@@ -110,6 +115,8 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
         ) {
             SystemStatusPane(
                 tokensPerSecond = if (isGenerating) tokensPerSecond else 0f,
+                isGpuAccelerated = isGpuAccelerated,
+                isGenerating = isGenerating,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -419,24 +426,87 @@ data class SystemMetricSample(
     val cpuPercent: Float,
     val totalPssMb: Float,
     val nativeHeapMb: Float,
-    val tokensPerSecond: Float = 0f
+    val tokensPerSecond: Float = 0f,
+    val gpuPercent: Float? = null
 )
 
 private const val MAX_METRIC_SAMPLES = 60
 
+/** Reads sysfs GPU utilization percentage (Adreno / Mali) if accessible. */
+private fun readGpuLoadPercent(): Float? {
+    try {
+        val file = File("/sys/class/kgsl/kgsl-3d0/gpubusy")
+        if (file.exists()) {
+            val parts = file.readText().trim().split("\\s+".toRegex())
+            if (parts.size >= 2) {
+                val busy = parts[0].toFloat()
+                val total = parts[1].toFloat()
+                if (total > 0) {
+                    return ((busy / total) * 100f).coerceIn(0f, 100f)
+                }
+            }
+        }
+    } catch (e: Exception) {}
+
+    try {
+        val devfreqDir = File("/sys/class/devfreq")
+        if (devfreqDir.exists()) {
+            devfreqDir.listFiles()?.forEach { dir ->
+                if (dir.name.contains("gpu", ignoreCase = true) ||
+                    dir.name.contains("kgsl", ignoreCase = true) ||
+                    dir.name.contains("mali", ignoreCase = true)
+                ) {
+                    val loadFile = File(dir, "load")
+                    if (loadFile.exists()) {
+                        val text = loadFile.readText().trim()
+                        val percent = text.split("@")[0].toFloatOrNull()
+                        if (percent != null) return percent.coerceIn(0f, 100f)
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {}
+
+    return null
+}
+
+/** Reads current system thermal status on Android 10+ (API 29+). */
+private fun readThermalStatusText(context: Context): String {
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
+        return when (powerManager.currentThermalStatus) {
+            PowerManager.THERMAL_STATUS_NONE -> "Normal"
+            PowerManager.THERMAL_STATUS_LIGHT -> "Light Heat"
+            PowerManager.THERMAL_STATUS_MODERATE -> "Moderate"
+            PowerManager.THERMAL_STATUS_SEVERE -> "Throttled!"
+            PowerManager.THERMAL_STATUS_CRITICAL -> "Critical!"
+            PowerManager.THERMAL_STATUS_EMERGENCY -> "Emergency!"
+            PowerManager.THERMAL_STATUS_SHUTDOWN -> "Shutdown!"
+            else -> "Normal"
+        }
+    }
+    return "Normal"
+}
+
 /**
  * Always-visible system status pane shown at the top of the chat screen (occupying roughly 1/3
- * of the available vertical space) so the user can see live memory, CPU cost, and token generation
- * speed along with a historical line chart. Samples are taken once per second.
+ * of the available vertical space) so the user can see live memory, CPU cost, GPU state, thermal
+ * status, and token generation speed along with a historical line chart. Samples are taken once
+ * per second.
  */
 @Composable
 fun SystemStatusPane(
     tokensPerSecond: Float = 0f,
+    isGpuAccelerated: Boolean = false,
+    isGenerating: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var totalPssMb by remember { mutableStateOf(0f) }
     var nativeHeapMb by remember { mutableStateOf(0f) }
     var cpuPercent by remember { mutableStateOf(0f) }
+    var gpuLoadPercent by remember { mutableStateOf<Float?>(null) }
+    var thermalText by remember { mutableStateOf("Normal") }
     var history by remember { mutableStateOf(listOf<SystemMetricSample>()) }
 
     val currentTokSec by rememberUpdatedState(tokensPerSecond)
@@ -465,11 +535,16 @@ fun SystemStatusPane(
             lastTicks = ticks
             lastWallMs = wallMs
 
+            val gpuLoad = readGpuLoadPercent()
+            gpuLoadPercent = gpuLoad
+            thermalText = readThermalStatusText(context)
+
             val sample = SystemMetricSample(
                 cpuPercent = cpuPercent,
                 totalPssMb = totalPssMb,
                 nativeHeapMb = nativeHeapMb,
-                tokensPerSecond = currentTokSec
+                tokensPerSecond = currentTokSec,
+                gpuPercent = gpuLoad
             )
             history = (history + sample).takeLast(MAX_METRIC_SAMPLES)
         }
@@ -479,6 +554,15 @@ fun SystemStatusPane(
     val pssColor = Color(0xFF10B981)      // Green
     val nativeColor = Color(0xFF8B5CF6)   // Purple
     val tokenColor = Color(0xFF06B6D4)    // Cyan/Teal
+    val gpuColor = Color(0xFFEC4899)      // Pink/Rose
+    val thermalColor = Color(0xFFEAB308)  // Amber/Yellow
+
+    val gpuValueText = when {
+        !isGpuAccelerated -> "Disabled (CPU)"
+        gpuLoadPercent != null -> "%.1f%%".format(gpuLoadPercent)
+        isGenerating -> "GPU (Active)"
+        else -> "GPU (Idle)"
+    }
 
     Surface(
         modifier = modifier,
@@ -509,7 +593,7 @@ fun SystemStatusPane(
             }
             Spacer(modifier = Modifier.height(4.dp))
             
-            // 2x2 grid layout for status indicators to minimize vertical space consumption
+            // 3x2 grid layout for status indicators
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
@@ -527,6 +611,14 @@ fun SystemStatusPane(
                     Spacer(modifier = Modifier.width(8.dp))
                     StatusCell("Tokens/s", "%.1f tok/s".format(tokensPerSecond), tokenColor, Modifier.weight(1f))
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    StatusCell("GPU Status", gpuValueText, gpuColor, Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    StatusCell("Thermal", thermalText, thermalColor, Modifier.weight(1f))
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -537,6 +629,7 @@ fun SystemStatusPane(
                 pssColor = pssColor,
                 nativeColor = nativeColor,
                 tokenColor = tokenColor,
+                gpuColor = gpuColor,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -593,6 +686,7 @@ fun SystemStatusChart(
     pssColor: Color,
     nativeColor: Color,
     tokenColor: Color,
+    gpuColor: Color = Color(0xFFEC4899),
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
@@ -649,6 +743,8 @@ fun SystemStatusChart(
         val pssPath = Path()
         val nativePath = Path()
         val tokenPath = Path()
+        val gpuPath = Path()
+        val hasGpuData = history.any { it.gpuPercent != null }
 
         history.forEachIndexed { i, sample ->
             val x = getX(i)
@@ -656,17 +752,20 @@ fun SystemStatusChart(
             val pssY = getMemY(sample.totalPssMb)
             val nativeY = getMemY(sample.nativeHeapMb)
             val tokY = getTokY(sample.tokensPerSecond)
+            val gpuY = getCpuY(sample.gpuPercent ?: 0f)
 
             if (i == 0) {
                 cpuPath.moveTo(x, cpuY)
                 pssPath.moveTo(x, pssY)
                 nativePath.moveTo(x, nativeY)
                 tokenPath.moveTo(x, tokY)
+                if (sample.gpuPercent != null) gpuPath.moveTo(x, gpuY)
             } else {
                 cpuPath.lineTo(x, cpuY)
                 pssPath.lineTo(x, pssY)
                 nativePath.lineTo(x, nativeY)
                 tokenPath.lineTo(x, tokY)
+                if (sample.gpuPercent != null) gpuPath.lineTo(x, gpuY)
             }
         }
 
@@ -690,7 +789,7 @@ fun SystemStatusChart(
             )
         )
 
-        // Draw CPU, PSS, Native Heap, and Tokens/s lines
+        // Draw CPU, PSS, Native Heap, Tokens/s, and GPU lines
         drawPath(
             path = cpuPath,
             color = cpuColor,
@@ -711,6 +810,13 @@ fun SystemStatusChart(
             color = tokenColor,
             style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
         )
+        if (hasGpuData) {
+            drawPath(
+                path = gpuPath,
+                color = gpuColor,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
 
         // Draw current sample dots at latest point
         val latestIndex = history.size - 1
@@ -718,6 +824,9 @@ fun SystemStatusChart(
         val latestX = getX(latestIndex)
         val dotRadius = 3.5.dp.toPx()
 
+        latestSample.gpuPercent?.let { gpuLoad ->
+            drawCircle(color = gpuColor, radius = dotRadius, center = Offset(latestX, getCpuY(gpuLoad)))
+        }
         drawCircle(color = tokenColor, radius = dotRadius, center = Offset(latestX, getTokY(latestSample.tokensPerSecond)))
         drawCircle(color = nativeColor, radius = dotRadius, center = Offset(latestX, getMemY(latestSample.nativeHeapMb)))
         drawCircle(color = pssColor, radius = dotRadius, center = Offset(latestX, getMemY(latestSample.totalPssMb)))

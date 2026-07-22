@@ -19,6 +19,7 @@ data class ModelOption(
     val displayName: String,
     val description: String,
     val backend: Backend,
+    val useGpu: Boolean,
     val downloadUrl: String,
     val fileName: String,
     val approxSizeMb: Int
@@ -33,30 +34,61 @@ data class ModelOption(
 /** The set of models the user can pick from on the main setup screen. */
 val AVAILABLE_MODELS = listOf(
     ModelOption(
-        id = "gemma3-1b-it",
-        displayName = "Gemma 3 1B-IT",
-        description = "Lightweight edge model (~550MB, int4 quantized). Runs on the MediaPipe LLM Inference API.",
+        id = "gemma3-1b-it-cpu",
+        displayName = "Gemma 3 1B-IT (CPU)",
+        description = "Lightweight edge model (~550MB, int4). Runs on CPU via MediaPipe API.",
         backend = Backend.MEDIAPIPE,
+        useGpu = false,
         downloadUrl = "https://34.134.65.149.nip.io/gemma3-1b-it-int4.task",
         fileName = "gemma3-1b-it-int4.task",
         approxSizeMb = 555
     ),
     ModelOption(
-        id = "gemma4-e2b-it",
-        displayName = "Gemma 4 E2B-IT",
-        description = "Smallest Gemma 4 variant (~2.4GB). Requires the newer LiteRT-LM engine.",
+        id = "gemma3-1b-it-gpu",
+        displayName = "Gemma 3 1B-IT (GPU)",
+        description = "Lightweight edge model (~550MB, int4). Runs on GPU via MediaPipe API.",
+        backend = Backend.MEDIAPIPE,
+        useGpu = true,
+        downloadUrl = "https://34.134.65.149.nip.io/gemma3-1b-it-int4.task",
+        fileName = "gemma3-1b-it-int4.task",
+        approxSizeMb = 555
+    ),
+    ModelOption(
+        id = "gemma4-e2b-it-cpu",
+        displayName = "Gemma 4 E2B-IT (CPU)",
+        description = "Smallest Gemma 4 variant (~2.4GB). Runs on CPU via LiteRT-LM engine.",
         backend = Backend.LITERT_LM,
-        // Verified: real .litertlm container (magic "LITERTLM", major/minor version 1.5),
-        // mirrored from litert-community/gemma-4-E2B-it-litert-lm on Hugging Face.
+        useGpu = false,
         downloadUrl = "https://34.134.65.149.nip.io/gemma-4-E2B-it.litertlm",
         fileName = "gemma-4-E2B-it.litertlm",
         approxSizeMb = 2468
     ),
     ModelOption(
-        id = "gemma4-e4b-it",
-        displayName = "Gemma 4 E4B-IT",
-        description = "Mid-size Gemma 4 variant (~3.7GB). High accuracy; requires flagship RAM & LiteRT-LM engine.",
+        id = "gemma4-e2b-it-gpu",
+        displayName = "Gemma 4 E2B-IT (GPU)",
+        description = "Smallest Gemma 4 variant (~2.4GB). Runs on GPU via LiteRT-LM engine.",
         backend = Backend.LITERT_LM,
+        useGpu = true,
+        downloadUrl = "https://34.134.65.149.nip.io/gemma-4-E2B-it.litertlm",
+        fileName = "gemma-4-E2B-it.litertlm",
+        approxSizeMb = 2468
+    ),
+    ModelOption(
+        id = "gemma4-e4b-it-cpu",
+        displayName = "Gemma 4 E4B-IT (CPU)",
+        description = "Mid-size Gemma 4 variant (~3.7GB). Runs on CPU via LiteRT-LM engine.",
+        backend = Backend.LITERT_LM,
+        useGpu = false,
+        downloadUrl = "https://34.134.65.149.nip.io/gemma-4-E4B-it.litertlm",
+        fileName = "gemma-4-E4B-it.litertlm",
+        approxSizeMb = 3740
+    ),
+    ModelOption(
+        id = "gemma4-e4b-it-gpu",
+        displayName = "Gemma 4 E4B-IT (GPU)",
+        description = "Mid-size Gemma 4 variant (~3.7GB). Runs on GPU via LiteRT-LM engine.",
+        backend = Backend.LITERT_LM,
+        useGpu = true,
         downloadUrl = "https://34.134.65.149.nip.io/gemma-4-E4B-it.litertlm",
         fileName = "gemma-4-E4B-it.litertlm",
         approxSizeMb = 3740

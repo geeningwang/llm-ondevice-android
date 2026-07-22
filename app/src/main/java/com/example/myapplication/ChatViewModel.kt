@@ -3,12 +3,14 @@ package com.example.myapplication
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class ChatMessage(
@@ -31,14 +33,16 @@ sealed class ModelState {
  */
 private sealed class EngineAdapter {
     abstract val partialResults: SharedFlow<Pair<String, Boolean>>
-    abstract fun initialize(path: String): Result<Unit>
+    abstract val isGpuAccelerated: Boolean
+    abstract fun initialize(path: String, useGpu: Boolean): Result<Unit>
     abstract fun generateResponse(prompt: String)
     abstract fun close()
 
     class MediaPipeAdapter(context: Application) : EngineAdapter() {
         private val model = InferenceModel(context)
         override val partialResults get() = model.partialResults
-        override fun initialize(path: String) = model.initialize(path)
+        override val isGpuAccelerated get() = model.isGpuAccelerated
+        override fun initialize(path: String, useGpu: Boolean) = model.initialize(path, useGpu)
         override fun generateResponse(prompt: String) = model.generateResponse(prompt)
         override fun close() = model.close()
     }
@@ -46,7 +50,8 @@ private sealed class EngineAdapter {
     class LiteRtLmAdapter(context: Application) : EngineAdapter() {
         private val model = LiteRtLmInferenceModel(context)
         override val partialResults get() = model.partialResults
-        override fun initialize(path: String) = model.initialize(path)
+        override val isGpuAccelerated get() = model.isGpuAccelerated
+        override fun initialize(path: String, useGpu: Boolean) = model.initialize(path, useGpu)
         override fun generateResponse(prompt: String) = model.generateResponse(prompt)
         override fun close() = model.close()
     }
@@ -76,6 +81,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _tokensPerSecond = MutableStateFlow(0f)
     val tokensPerSecond: StateFlow<Float> = _tokensPerSecond.asStateFlow()
+
+    private val _isGpuAccelerated = MutableStateFlow(false)
+    val isGpuAccelerated: StateFlow<Boolean> = _isGpuAccelerated.asStateFlow()
 
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
@@ -111,106 +119,121 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val modelFile = File(getApplication<Application>().filesDir, option.fileName)
 
         viewModelScope.launch {
-            log("Checking for an existing model at ${modelFile.absolutePath}...")
-            if (!forceRedownload && modelFile.exists() && modelFile.isFile && modelFile.length() > 100 * 1024 * 1024) {
-                val sizeMb = modelFile.length() / (1024 * 1024)
-                log("Found existing model ($sizeMb MB). Skipping download and starting chat.")
-                initModel(option, modelFile.absolutePath)
-                return@launch
-            }
+            try {
+                log("Checking for an existing model at ${modelFile.absolutePath}...")
+                if (!forceRedownload && modelFile.exists() && modelFile.isFile && modelFile.length() > 100 * 1024 * 1024) {
+                    val sizeMb = modelFile.length() / (1024 * 1024)
+                    log("Found existing model ($sizeMb MB). Skipping download and starting chat.")
+                    initModel(option, modelFile.absolutePath)
+                    return@launch
+                }
 
-            if (forceRedownload && modelFile.exists()) {
-                log("Re-download requested. Removing the existing file first.")
-            } else {
-                log("No valid cached model found.")
-            }
-            // Delete any existing/invalid file before downloading a fresh copy
-            if (modelFile.exists()) modelFile.deleteRecursively()
+                if (forceRedownload && modelFile.exists()) {
+                    log("Re-download requested. Removing the existing file first.")
+                } else {
+                    log("No valid cached model found.")
+                }
+                // Delete any existing/invalid file before downloading a fresh copy
+                if (modelFile.exists()) modelFile.deleteRecursively()
 
-            log("Downloading ${option.displayName} from ${option.downloadUrl}")
-            var lastLoggedDecile = -1
-            modelDownloader.downloadModel(option.downloadUrl, modelFile, option.modelFormat).collect { status ->
-                when (status) {
-                    is DownloadStatus.Progress -> {
-                        _modelState.value = ModelState.Downloading(status.percentage)
-                        val decile = (status.percentage * 10).toInt()
-                        if (decile != lastLoggedDecile) {
-                            lastLoggedDecile = decile
-                            log("Downloading... ${(status.percentage * 100).toInt()}%")
+                log("Downloading ${option.displayName} from ${option.downloadUrl}")
+                var lastLoggedDecile = -1
+                modelDownloader.downloadModel(option.downloadUrl, modelFile, option.modelFormat).collect { status ->
+                    when (status) {
+                        is DownloadStatus.Progress -> {
+                            _modelState.value = ModelState.Downloading(status.percentage)
+                            val decile = (status.percentage * 10).toInt()
+                            if (decile != lastLoggedDecile) {
+                                lastLoggedDecile = decile
+                                log("Downloading... ${(status.percentage * 100).toInt()}%")
+                            }
+                        }
+                        is DownloadStatus.Success -> {
+                            log("Download complete. Verified as a valid ${if (option.backend == Backend.LITERT_LM) "LiteRT-LM .litertlm container" else "MediaPipe .task bundle"}.")
+                            initModel(option, status.file.absolutePath)
+                        }
+                        is DownloadStatus.Error -> {
+                            log("Download failed: ${status.message}")
+                            _modelState.value = ModelState.Error(status.message)
                         }
                     }
-                    is DownloadStatus.Success -> {
-                        log("Download complete. Verified as a valid ${if (option.backend == Backend.LITERT_LM) "LiteRT-LM .litertlm container" else "MediaPipe .task bundle"}.")
-                        initModel(option, status.file.absolutePath)
-                    }
-                    is DownloadStatus.Error -> {
-                        log("Download failed: ${status.message}")
-                        _modelState.value = ModelState.Error(status.message)
-                    }
                 }
+            } catch (t: Throwable) {
+                val error = t.message ?: t.toString()
+                log("Download error: $error")
+                _modelState.value = ModelState.Error(error)
             }
         }
     }
 
     fun initModel(option: ModelOption, path: String) {
         viewModelScope.launch {
-            val engineName = if (option.backend == Backend.LITERT_LM) "LiteRT-LM" else "MediaPipe LlmInference"
-            log("Initializing $engineName engine from $path...")
-            _modelState.value = ModelState.Initializing
+            try {
+                val engineName = if (option.backend == Backend.LITERT_LM) "LiteRT-LM" else "MediaPipe LlmInference"
+                log("Initializing $engineName engine from $path...")
+                _modelState.value = ModelState.Initializing
 
-            // Tear down any previously active engine (e.g. switching models) before creating a
-            // new one.
-            partialResultsJob?.cancel()
-            engineAdapter?.close()
+                // Tear down any previously active engine (e.g. switching models) before creating a
+                // new one.
+                partialResultsJob?.cancel()
+                engineAdapter?.close()
 
-            val adapter = EngineAdapter.create(option.backend, getApplication())
-            engineAdapter = adapter
-            partialResultsJob = viewModelScope.launch {
-                var tokenCount = 0
-                var generationStartTime = 0L
+                val adapter = EngineAdapter.create(option.backend, getApplication())
+                engineAdapter = adapter
+                partialResultsJob = viewModelScope.launch {
+                    var tokenCount = 0
+                    var generationStartTime = 0L
 
-                adapter.partialResults.collect { (text, done) ->
-                    if (tokenCount == 0 && text.isNotEmpty()) {
-                        generationStartTime = System.currentTimeMillis()
-                    }
-                    if (text.isNotEmpty()) {
-                        tokenCount++
-                        val elapsedSec = (System.currentTimeMillis() - generationStartTime) / 1000f
-                        if (elapsedSec > 0.05f) {
-                            _tokensPerSecond.value = tokenCount / elapsedSec
+                    adapter.partialResults.collect { (text, done) ->
+                        _isGpuAccelerated.value = adapter.isGpuAccelerated
+                        if (tokenCount == 0 && text.isNotEmpty()) {
+                            generationStartTime = System.currentTimeMillis()
+                        }
+                        if (text.isNotEmpty()) {
+                            tokenCount++
+                            val elapsedSec = (System.currentTimeMillis() - generationStartTime) / 1000f
+                            if (elapsedSec > 0.05f) {
+                                _tokensPerSecond.value = tokenCount / elapsedSec
+                            }
+                        }
+                        currentResponse.append(text)
+                        updateLastAiMessage(currentResponse.toString())
+                        if (done) {
+                            val totalSec = (System.currentTimeMillis() - generationStartTime) / 1000f
+                            val finalSpeed = if (totalSec > 0) tokenCount / totalSec else 0f
+                            _tokensPerSecond.value = finalSpeed
+                            _isGenerating.value = false
+                            log("Response complete. ($tokenCount tokens, %.1f tok/s)".format(finalSpeed))
+                            currentResponse.clear()
                         }
                     }
-                    currentResponse.append(text)
-                    updateLastAiMessage(currentResponse.toString())
-                    if (done) {
-                        val totalSec = (System.currentTimeMillis() - generationStartTime) / 1000f
-                        val finalSpeed = if (totalSec > 0) tokenCount / totalSec else 0f
-                        _tokensPerSecond.value = finalSpeed
-                        _isGenerating.value = false
-                        log("Response complete. ($tokenCount tokens, %.1f tok/s)".format(finalSpeed))
-                        currentResponse.clear()
+                }
+
+                val result = withContext(Dispatchers.IO) { adapter.initialize(path, option.useGpu) }
+                if (result.isSuccess) {
+                    _isGpuAccelerated.value = adapter.isGpuAccelerated
+                    val backendStr = if (adapter.isGpuAccelerated) "GPU Accelerated" else "CPU Backend"
+                    log("Model initialized successfully ($backendStr). Ready to chat.")
+                    _modelState.value = ModelState.Ready
+                } else {
+                    val error = result.exceptionOrNull()?.message ?: "Unknown error"
+                    log("Initialization failed: $error")
+                    _modelState.value = ModelState.Error(error)
+                    // If it's a corrupted/incompatible file, delete it so the user can retry with a
+                    // fresh download instead of repeatedly failing to load the same broken file.
+                    if (error.contains("zip archive", ignoreCase = true) ||
+                        error.contains("corrupted", ignoreCase = true) ||
+                        error.contains("not a valid", ignoreCase = true) ||
+                        error.contains("litertlm", ignoreCase = true)
+                    ) {
+                        log("Removing incompatible/corrupted model file so it can be re-downloaded.")
+                        File(path).delete()
                     }
                 }
-            }
-
-            val result = adapter.initialize(path)
-            if (result.isSuccess) {
-                log("Model initialized successfully. Ready to chat.")
-                _modelState.value = ModelState.Ready
-            } else {
-                val error = result.exceptionOrNull()?.message ?: "Unknown error"
-                log("Initialization failed: $error")
-                _modelState.value = ModelState.Error(error)
-                // If it's a corrupted/incompatible file, delete it so the user can retry with a
-                // fresh download instead of repeatedly failing to load the same broken file.
-                if (error.contains("zip archive", ignoreCase = true) ||
-                    error.contains("corrupted", ignoreCase = true) ||
-                    error.contains("not a valid", ignoreCase = true) ||
-                    error.contains("litertlm", ignoreCase = true)
-                ) {
-                    log("Removing incompatible/corrupted model file so it can be re-downloaded.")
-                    File(path).delete()
-                }
+            } catch (t: Throwable) {
+                val error = t.message ?: t.toString()
+                log("Initialization exception: $error")
+                _modelState.value = ModelState.Error("Initialization error: $error")
             }
         }
     }
@@ -240,6 +263,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         engineAdapter?.close()
         engineAdapter = null
         _tokensPerSecond.value = 0f
+        _isGpuAccelerated.value = false
         _messages.value = emptyList()
         _modelState.value = ModelState.Idle
     }

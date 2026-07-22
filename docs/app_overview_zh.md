@@ -7,22 +7,20 @@ _最后更新：2026-07-22_
 
 ## 应用功能
 
-一个基于 Kotlin + Jetpack Compose 的 Android 应用，用户可以选择三个
-端侧大模型中的一个，下载它（或复用已缓存的副本），然后完全在设备端与
-其对话（推理过程不经过任何服务器）。应用会实时展示当前正在执行的操作
-日志，以及全局常驻的系统资源（CPU、Memory PSS、Native Heap 及 60 秒实时折线图）监控面板。
+一个基于 Kotlin + Jetpack Compose 的 Android 应用，用户可以在 6 个模型/算子选项（3 个模型系列分别划分为 CPU 和 GPU 两种执行目标）中进行选择，下载它们（或复用已缓存的副本），然后完全在设备端与其对话（推理过程不经过任何服务器）。应用会实时展示当前正在执行的操作日志，以及全局常驻的系统资源（CPU、Memory PSS、Native Heap、GPU 状态、发热状态及 60 秒实时折线图）监控面板。
 
 ## 可选模型
 
-| 模型 | 后端 | 格式 | 大致体积 | 来源 |
+| 模型选项 | 执行目标 | 后端 | 格式 | 大致体积 |
 |---|---|---|---|---|
-| Gemma 3 1B-IT | MediaPipe `tasks-genai`（`LlmInference`） | `.task`（ZIP） | 约 555MB | Hugging Face 上的 `litert-community/Gemma3-1B-IT`（受限仓库，需接受 Gemma 许可协议） |
-| Gemma 4 E2B-IT | LiteRT-LM | `.litertlm` | 约 2.41GB | Hugging Face 上的 `litert-community/gemma-4-E2B-it-litert-lm`（受限仓库） |
-| Gemma 4 E4B-IT | LiteRT-LM | `.litertlm` | 约 3.66GB | Hugging Face 上的 `litert-community/gemma-4-E4B-it-litert-lm`（受限仓库） |
+| Gemma 3 1B-IT (CPU) | CPU | MediaPipe `tasks-genai`（`LlmInference`） | `.task`（ZIP） | 约 555MB |
+| Gemma 3 1B-IT (GPU) | GPU | MediaPipe `tasks-genai`（`LlmInference`） | `.task`（ZIP） | 约 555MB |
+| Gemma 4 E2B-IT (CPU) | CPU | LiteRT-LM | `.litertlm` | 约 2.41GB |
+| Gemma 4 E2B-IT (GPU) | GPU | LiteRT-LM | `.litertlm` | 约 2.41GB |
+| Gemma 4 E4B-IT (CPU) | CPU | LiteRT-LM | `.litertlm` | 约 3.66GB |
+| Gemma 4 E4B-IT (GPU) | GPU | LiteRT-LM | 约 3.66GB |
 
-这两个文件目前都镜像在一台私有测试 HTTP 服务器上（具体地址见
-`Models.kt`）——该服务器并非公开/永久的分发节点；如果要用于正式部署，
-应根据实际需求另行选择合适的托管方式。
+所有模型文件目前都镜像在一台私有测试 HTTP 服务器上（具体地址见 `Models.kt`）。同个模型的 CPU 与 GPU 选项在本地共享同一个模型文件，因此下载一次后即可在 CPU 和 GPU 执行模式之间即时切换。
 
 ## 架构
 
@@ -48,14 +46,16 @@ _最后更新：2026-07-22_
 
 ## 系统资源与 LLM 性能监控
 
-应用中内置了一个实时的系统状态监控面板（`MainActivity.kt` 中的 `SystemStatusPane`），持续监控 CPU 使用率、内存指标以及 Token 生成速度（Tokens/s），并在紧凑的 2x2 网格中展示数值指标，同时配合 60 秒历史折线图（`SystemStatusChart`）展示变化趋势。该面板位于 UI 布局顶层，在所有界面（模型选择、下载中、初始化中、聊天界面、错误界面）之间保持全局常驻，使得系统影响在模型下载、引擎初始化和 Token 生成过程中能够被连续观察。
+应用中内置了一个实时的系统状态监控面板（`MainActivity.kt` 中的 `SystemStatusPane`），持续监控 CPU 使用率、内存指标、GPU 状态、系统发热状态以及 Token 生成速度（Tokens/s），并在紧凑的 3x2 网格中展示数值指标，同时配合 60 秒历史折线图（`SystemStatusChart`）展示变化趋势。该面板位于 UI 布局顶层，在所有界面（模型选择、下载中、初始化中、聊天界面、错误界面）之间保持全局常驻，使得系统影响在模型下载、引擎初始化和 Token 生成过程中能够被连续观察。
 
-### 监控指标与 2x2 布局
+### 监控指标与 3x2 布局
 
 - **CPU Usage**（橙色）：通过 `/proc/self/stat` 差值计算的进程 CPU 使用率。
 - **Memory PSS**（绿色）：通过 `Debug.getMemoryInfo()` 获取的进程实际占用系统 RAM 份额。
 - **Native Heap**（紫色）：通过 `Debug.getNativeHeapAllocatedSize()` 获取的 C/C++ 动态堆内存（LLM 权重张量和 KV 缓存）。
 - **Tokens/s**（青色）：LLM 生成 Token 过程中的实时吞吐速度（$\text{tok/s}$）。
+- **GPU Status**（粉色）：实时 GPU 利用率百分比（通过 Adreno/Mali Linux sysfs 读取）或 GPU Delegate 状态（`GPU (Active)`、`GPU (Idle)` 或 `CPU Fallback`）。
+- **Thermal**（黄色）：通过 Android `PowerManager.currentThermalStatus` 获取的设备发热与降频状态（`Normal`、`Light Heat`、`Moderate`、`Throttled!`、`Critical!`）。
 
 ### Memory PSS（Proportional Set Size，比例集大小）
 
@@ -137,6 +137,7 @@ _最后更新：2026-07-22_
     （`liblitertlm_jni.so` 与 `libllm_inference_engine_jni.so`）；已通过
     完整执行一次 `assembleDebug` 得到验证。APK 体积从约 129MB
     （仅 MediaPipe）增长到约 176MB（两者都有）。
+15. **将模型拆分为显式的 CPU 和 GPU 执行选项。** 摒弃了脆弱的 GPU 驱动预检和运行时回退逻辑，主选择界面上直接将 3 个模型系列拆分为 6 个显式的 CPU 与 GPU 独立选项（`Gemma 3 1B-IT CPU/GPU`、`Gemma 4 E2B-IT CPU/GPU`、`Gemma 4 E4B-IT CPU/GPU`）。同模型的 CPU/GPU 选项共享本地同一个文件，下载一次即可即时切换执行目标。
 
 ## 构建与运行
 
@@ -149,9 +150,7 @@ Android SDK 路径配置在 `local.properties` 文件中的 `sdk.dir` 字段。
 
 ## 已知限制／可能的后续改进
 
-- LiteRT-LM 目前默认使用 CPU 后端以保证广泛的兼容性；若要使用 GPU/NPU
-  后端，需要额外在 Manifest 中声明（`<uses-native-library>`），并且／或
-  需要针对特定设备编译的 `.litertlm` 变体。
+- GPU 执行需要硬件及设备系统级的 OpenCL 驱动支持；NPU 加速需要针对特定设备编译的 `.litertlm` 变体。
 - `MessageCallback.onMessage()` 的具体流式语义（每次回调传递的是增量
   片段，还是到目前为止的累计完整消息）目前是根据 API 形态推断得出的，
   尚未通过真机上实际生成内容进行确认——建议在设备上用真实 prompt

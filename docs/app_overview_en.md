@@ -8,23 +8,24 @@ for anyone picking up this codebase later.
 
 ## What the app does
 
-A Kotlin + Jetpack Compose Android app that lets the user pick one of three
-on-device LLMs, download it (or reuse a cached copy), and chat with it
+A Kotlin + Jetpack Compose Android app that lets the user pick one of six
+selectable model/delegate options (3 model families split into CPU and GPU execution targets), download them (or reuse a cached copy), and chat with them
 entirely on-device (no server calls for inference). It shows a live log of
-what it's doing and an always-visible system-resource panel (CPU, Memory PSS, Native Heap, and a 60s real-time line chart) that stays active across all screens.
+what it's doing and an always-visible system-resource panel (CPU, Memory PSS, Native Heap, GPU, Thermal status, and a 60s real-time line chart) that stays active across all screens.
 
 ## Available models
 
-| Model | Backend | Format | Approx. size | Source |
+| Model Option | Target Delegate | Backend | Format | Approx. size |
 |---|---|---|---|---|
-| Gemma 3 1B-IT | MediaPipe `tasks-genai` (`LlmInference`) | `.task` (ZIP) | ~555MB | `litert-community/Gemma3-1B-IT` on Hugging Face (gated; requires accepting the Gemma license) |
-| Gemma 4 E2B-IT | LiteRT-LM | `.litertlm` | ~2.41GB | `litert-community/gemma-4-E2B-it-litert-lm` on Hugging Face (gated) |
-| Gemma 4 E4B-IT | LiteRT-LM | `.litertlm` | ~3.66GB | `litert-community/gemma-4-E4B-it-litert-lm` on Hugging Face (gated) |
+| Gemma 3 1B-IT (CPU) | CPU | MediaPipe `tasks-genai` (`LlmInference`) | `.task` (ZIP) | ~555MB |
+| Gemma 3 1B-IT (GPU) | GPU | MediaPipe `tasks-genai` (`LlmInference`) | `.task` (ZIP) | ~555MB |
+| Gemma 4 E2B-IT (CPU) | CPU | LiteRT-LM | `.litertlm` | ~2.41GB |
+| Gemma 4 E2B-IT (GPU) | GPU | LiteRT-LM | `.litertlm` | ~2.41GB |
+| Gemma 4 E4B-IT (CPU) | CPU | LiteRT-LM | `.litertlm` | ~3.66GB |
+| Gemma 4 E4B-IT (GPU) | GPU | LiteRT-LM | `.litertlm` | ~3.66GB |
 
-Both files are mirrored on a private test HTTP server for this demo (see
-`Models.kt` for the exact URLs) — that server is not a public/permanent
-distribution point; for a real deployment, host the files somewhere
-appropriate for your use case.
+All model files are mirrored on a private test HTTP server for this demo (see
+`Models.kt` for the exact URLs). CPU and GPU variants of the same model share the exact same local file on disk, so downloading a model once allows switching between CPU and GPU execution modes instantly.
 
 ## Architecture
 
@@ -50,14 +51,16 @@ appropriate for your use case.
 
 ## System Resource & LLM Performance Monitoring
 
-The app includes a real-time system status pane (`SystemStatusPane` in `MainActivity.kt`) that monitors CPU usage, memory metrics, and live token generation speed continuously, displaying numerical values in a space-optimized 2x2 grid alongside a 60-second real-time Compose Canvas line chart (`SystemStatusChart`). This pane is positioned at the top level of the UI hierarchy, making it persistent across all screens (Model Setup, Downloading, Initializing, Chatting, and Error screens) so that system impact during model downloading, engine initialization, and token generation can be observed seamlessly.
+The app includes a real-time system status pane (`SystemStatusPane` in `MainActivity.kt`) that monitors CPU usage, memory metrics, GPU state, system thermal status, and live token generation speed continuously, displaying numerical values in a space-optimized 3x2 grid alongside a 60-second real-time Compose Canvas line chart (`SystemStatusChart`). This pane is positioned at the top level of the UI hierarchy, making it persistent across all screens (Model Setup, Downloading, Initializing, Chatting, and Error screens) so that system impact during model downloading, engine initialization, and token generation can be observed seamlessly.
 
-### Monitored Metrics & 2x2 Legend Layout
+### Monitored Metrics & 3x2 Legend Layout
 
 - **CPU Usage** (Orange): Process CPU time delta measured via `/proc/self/stat`.
 - **Memory PSS (Proportional Set Size)** (Green): Total RAM footprint allocated to the app process by Android OS (retrieved via `Debug.getMemoryInfo()`).
 - **Native Heap** (Purple): C/C++ dynamic memory allocated by `malloc`/`new` for model weight tensors and KV-cache buffers (retrieved via `Debug.getNativeHeapAllocatedSize()`).
 - **Tokens/s** (Cyan): Live generation throughput ($\text{tok/s}$) measured in real time during LLM token streaming.
+- **GPU Status** (Pink): Live GPU utilization percentage (via Adreno/Mali Linux sysfs if accessible) or GPU delegate state (`GPU (Active)`, `GPU (Idle)`, or `CPU Fallback`).
+- **Thermal** (Yellow): Device thermal throttling status (`Normal`, `Light Heat`, `Moderate`, `Throttled!`, `Critical!`) retrieved via Android `PowerManager.currentThermalStatus`.
 
 ### Memory PSS (Proportional Set Size)
 
@@ -144,6 +147,7 @@ The app includes a real-time system status pane (`SystemStatusPane` in `MainActi
     (`liblitertlm_jni.so` vs `libllm_inference_engine_jni.so`); confirmed via
     a full `assembleDebug`. APK size grew from ~129MB (MediaPipe only) to
     ~176MB (both).
+15. **Split models into explicit CPU and GPU execution targets.** Rather than relying on fragile native GPU driver pre-checks or runtime fallbacks, all 3 model options are split into 6 explicit CPU and GPU selections on the main setup screen (`Gemma 3 1B-IT CPU/GPU`, `Gemma 4 E2B-IT CPU/GPU`, `Gemma 4 E4B-IT CPU/GPU`). CPU and GPU options share the same local model file, allowing instant execution target switching without re-downloading.
 
 ## Building and running
 
@@ -156,9 +160,8 @@ The Android SDK path is configured in `local.properties` (`sdk.dir`).
 
 ## Known limitations / possible follow-ups
 
-- LiteRT-LM defaults to the CPU backend for broad compatibility; GPU/NPU
-  backends need extra manifest entries (`<uses-native-library>`) and/or
-  device-specific compiled `.litertlm` variants.
+- GPU execution requires hardware and device OpenCL driver support.
+  NPU execution requires device-specific compiled `.litertlm` variants.
 - The exact streaming semantics of `MessageCallback.onMessage()` (whether
   each callback delivers a delta chunk or the cumulative message so far)
   were inferred from the API shape, not confirmed against real generation

@@ -11,14 +11,10 @@ import java.io.File
 
 class InferenceModel(private val context: Context) {
     private var llmInference: LlmInference? = null
-
-    // A single persistent session is used across all turns of the conversation. MediaPipe's
-    // LlmInference.generateResponseAsync(String) convenience method resets its "implicit
-    // session" -- and therefore the conversation context/KV-cache -- on every call, which is why
-    // a naive usage of it loses context after the first message. Using an explicit
-    // LlmInferenceSession and calling addQueryChunk()/generateResponseAsync() on the SAME session
-    // object for every turn keeps prior turns (both user prompts and model responses) in context.
     private var session: LlmInferenceSession? = null
+
+    var isGpuAccelerated: Boolean = false
+        private set
 
     private val _partialResults = MutableSharedFlow<Pair<String, Boolean>>(
         extraBufferCapacity = 64,
@@ -26,7 +22,7 @@ class InferenceModel(private val context: Context) {
     )
     val partialResults: SharedFlow<Pair<String, Boolean>> = _partialResults.asSharedFlow()
 
-    fun initialize(modelPath: String): Result<Unit> {
+    fun initialize(modelPath: String, useGpu: Boolean): Result<Unit> {
         val modelFile = File(modelPath)
         if (!modelFile.exists()) {
             return Result.failure(Exception("Model file not found at $modelPath"))
@@ -37,20 +33,26 @@ class InferenceModel(private val context: Context) {
         }
 
         return try {
-            val options = LlmInference.LlmInferenceOptions.builder()
+            val builder = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelPath)
                 .setMaxTokens(1024)
-                .build()
 
-            val engine = LlmInference.createFromOptions(context, options)
+            if (useGpu) {
+                builder.setPreferredBackend(LlmInference.Backend.GPU)
+            } else {
+                builder.setPreferredBackend(LlmInference.Backend.CPU)
+            }
+
+            val engine = LlmInference.createFromOptions(context, builder.build())
             llmInference = engine
             session = LlmInferenceSession.createFromOptions(
                 engine,
                 LlmInferenceSession.LlmInferenceSessionOptions.builder().build()
             )
+            isGpuAccelerated = useGpu
             Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        } catch (t: Throwable) {
+            Result.failure(if (t is Exception) t else Exception(t.message ?: t.toString()))
         }
     }
 
@@ -67,5 +69,6 @@ class InferenceModel(private val context: Context) {
         session = null
         llmInference?.close()
         llmInference = null
+        isGpuAccelerated = false
     }
 }
