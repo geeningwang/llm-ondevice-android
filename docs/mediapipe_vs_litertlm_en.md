@@ -2,11 +2,11 @@
 
 _Last updated: 2026-07-21_
 
-> Status update: This demo app now ships both models side by side and both
-> have been verified working end-to-end on-device: Gemma 3 1B-IT via the
-> MediaPipe LlmInference API, and Gemma 4 E2B-IT via LiteRT-LM (verified
-> against a genuine .litertlm file - magic "LITERTLM", format version 1.5.0,
-> ~2.41GB). The two dependencies coexist in one APK with no conflicts. See
+> Status update: This demo app now ships multiple model options side by side and
+> they have been verified working end-to-end on-device: Gemma 3 1B-IT via the
+> MediaPipe LlmInference API, and Gemma 4 E2B-IT (~2.41GB) & Gemma 4 E4B-IT (~3.66GB)
+> via LiteRT-LM (both verified against genuine .litertlm files - magic "LITERTLM",
+> format version 1.5.0). All dependencies coexist in one APK with no conflicts. See
 > app_overview_en.md for the full architecture and the list of bugs found and
 > fixed along the way.
 

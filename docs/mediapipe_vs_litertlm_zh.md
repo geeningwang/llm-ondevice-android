@@ -2,11 +2,11 @@
 
 _最后更新：2026-07-21_
 
-> 状态更新：本演示应用现已同时支持两个模型，并且均已在真机上完成端到端
+> 状态更新：本演示应用现已同时支持多个模型选择，并且均已在真机上完成端到端
 > 验证：Gemma 3 1B-IT 通过 MediaPipe 的 LlmInference API 运行，
-> Gemma 4 E2B-IT 通过 LiteRT-LM 运行（已针对真实的 .litertlm
-> 文件验证，魔数 LITERTLM，格式版本 1.5.0，约 2.41GB）。这两个依赖可以
-> 在同一个 APK 中共存，没有任何冲突。完整架构说明以及开发过程中发现并修复
+> Gemma 4 E2B-IT（约 2.41GB）与 Gemma 4 E4B-IT（约 3.66GB）通过 LiteRT-LM
+> 运行（均已针对真实的 .litertlm 文件验证，魔数 LITERTLM，格式版本 1.5.0）。
+> 所有依赖可以在同一个 APK 中共存，没有任何冲突。完整架构说明以及开发过程中发现并修复
 > 的问题清单，请参见 app_overview_zh.md。
 
 本文总结了我们在为 Android 构建端侧 Gemma 聊天演示应用过程中,对 Google
