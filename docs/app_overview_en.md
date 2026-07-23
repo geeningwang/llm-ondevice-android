@@ -172,6 +172,8 @@ The Android SDK path is configured in `local.properties` (`sdk.dir`).
 
 ## Related documents
 
+- [telemetry_data_analysis.md](telemetry_data_analysis.md) — Comprehensive comparative performance and hardware-scaling data analysis compiled end-to-end via server-side telemetry.
+- [telemetry_api_design.md](telemetry_api_design.md) — Server-side telemetry collection REST web API structure, schema, and PostgreSQL database specifications.
 - [mediapipe_vs_litertlm_en.md](mediapipe_vs_litertlm_en.md) /
   [mediapipe_vs_litertlm_zh.md](mediapipe_vs_litertlm_zh.md) — deep dive into
   the two frameworks, container formats, and a full pros/cons comparison.

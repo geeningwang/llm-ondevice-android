@@ -160,6 +160,8 @@ Android SDK 路径配置在 `local.properties` 文件中的 `sdk.dir` 字段。
 
 ## 相关文档
 
+- [telemetry_data_analysis.md](telemetry_data_analysis.md) —— 通过服务端遥测采集到的三种模型端侧运行性能、内存分配、发热与多核扩展对比分析。
+- [telemetry_api_design.md](telemetry_api_design.md) —— 用于接收客户端遥测数据的服务端批量接口设计、数据 Schema 结构以及 PostgreSQL 数据库 DDL 设计规格。
 - [mediapipe_vs_litertlm_en.md](mediapipe_vs_litertlm_en.md) /
   [mediapipe_vs_litertlm_zh.md](mediapipe_vs_litertlm_zh.md) —— 深入介绍
   这两套框架、容器格式，以及完整的优缺点对比。
