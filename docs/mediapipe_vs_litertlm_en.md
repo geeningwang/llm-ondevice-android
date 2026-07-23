@@ -144,13 +144,6 @@ and does not depend on LiteRT-LM at all.
   about a year: NPU acceleration, multi-modality, tool/function calling,
   multi-token prediction (speculative decoding) for ~3x faster decode, new
   Swift/JavaScript/Flutter APIs, an OpenAI-API-compatible CLI server.
-
-### Pros
-
-- **Actively developed, fast-moving.** 26+ GitHub releases, v0.7 → v0.14 in
-  about a year: NPU acceleration, multi-modality, tool/function calling,
-  multi-token prediction (speculative decoding) for ~3x faster decode, new
-  Swift/JavaScript/Flutter APIs, an OpenAI-API-compatible CLI server.
 - **This is where all new models land**, including Gemma 4, Gemma 3n, and
   third-party families (Llama, Phi-4, Qwen, and more).
 - **Richer, extensible container format** (`.litertlm`) that can bundle
