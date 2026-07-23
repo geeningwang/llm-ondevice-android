@@ -136,6 +136,40 @@ and does not depend on LiteRT-LM at all.
   was deprecated. Newer models may rely on ops/graph structures the legacy
   engine's calculators don't have.
 
+---
+
+## On-Device Telemetry Data Analysis: Models Evaluation Comparison
+
+Using our custom web telemetry server backend, we executed end-to-end evaluations on all three models on the Android device (running on the **CPU execution delegate**). 
+
+Each session recorded once-per-second high-frequency system status parameters during active text-generation phases and idle resting phases:
+
+### A. Performance Metrics Matrix
+
+| Performance Metric | Gemma 3 1B-IT (`MEDIAPIPE`) | Gemma 4 E2B-IT (`LITERTLM`) | Gemma 4 E4B-IT (`LITERTLM`) |
+| :--- | :---: | :---: | :---: |
+| **Model Size on Disk** | **~555 MB** | **~2.41 GB** | **~3.66 GB** |
+| **Average Memory Footprint (PSS)** | 623.4 MB | 1123.6 MB | 4248.9 MB |
+| **Peak Memory Footprint (PSS)** | **1083.79 MB** | **1185.34 MB** | **4342.78 MB** |
+| **Average Native Heap Size** | 238.4 MB | 792.1 MB | 2061.2 MB |
+| **Peak Native Heap Size** | **508.18 MB** | **795.64 MB** | **2095.61 MB** |
+| **Peak CPU Load (Core Scaling)** | 283.78% (3 Cores) | 305.89% (3 Cores) | 302.06% (3 Cores) |
+| **Peak Generation Speed** | **13.68 tok/s** | **7.28 tok/s** | **5.48 tok/s** |
+| **Telemetry Samples Logged** | 364 samples (seconds) | 460 samples (seconds) | 1502 samples (seconds) |
+
+### B. Analytical Insights & Hardware Recommendations
+
+1. **Memory Allocation Profiles (PSS vs. Native Heap)**:
+   - **Gemma 3 1B-IT**: Extremely efficient. Peak C++ native allocations top out at **508.18 MB**, keeping total app process RAM (PSS) below **1.1 GB**. It is perfectly compatible with budget Android devices (such as those with a 3GB or 4GB physical RAM limit).
+   - **Gemma 4 E2B-IT**: Possesses excellent memory-mapping parameters. Despite being ~2.41 GB on disk, LiteRT-LM's dynamic `mmap` architecture keeps active Native Heap footprint tightly constrained at **795.64 MB** and total process PSS under **1.18 GB**.
+   - **Gemma 4 E4B-IT**: High overhead. Peak Native Heap allocations reach **2.09 GB**, pushing total process PSS to **4.34 GB**. Running E4B on-device requires flagship-tier devices equipped with **at least 8GB - 12GB of physical RAM** to protect against sudden background execution kills by Android's Low Memory Killer Daemon (`lmkd`).
+
+2. **Core Parallelization & Throughput**:
+   - All three engines successfully scale computational load across **3 physical CPU cores** simultaneously during active token generation, peaking CPU utilization between **280% - 306%**.
+   - **Gemma 3 1B-IT** delivers a highly responsive, fluent typing speed of **13.68 tok/s**, while **Gemma 4 E2B-IT** yields **7.28 tok/s**, and **Gemma 4 E4B-IT** achieves **5.48 tok/s** on CPU.
+
+---
+
 ## LiteRT-LM
 
 ### Pros
